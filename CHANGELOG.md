@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.3 (2026-10-02)
+
+- One Additional Material button on every page, and it always opens the picker. On course and
+  section pages it used to download that level's archive at once, with the picker behind a
+  separate list button that was easy to miss; that archive now downloads from the picker's foot
+  ("Download the course archive").
+- "1 archive", not "1 archives".
+
 ## 1.5.2 (2026-10-02)
 
 - A course Jellyfin adds between scans (its file watcher, or a scan of just that folder) is planned

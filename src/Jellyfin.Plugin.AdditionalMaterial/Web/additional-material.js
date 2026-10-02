@@ -34,7 +34,10 @@
         'dialog.noPermission': 'Downloads are not enabled for your account.',
         'dialog.empty': 'No additional material here.',
         'button.contentsOf': 'Additional material ({format}, {size}): show contents',
-        'button.contents': 'Contents: {count} archives',
+        'button.countOne': 'Additional material: 1 archive',
+        'dialog.downloadLevel.Series': 'Download the course archive ({format}, {size})',
+        'dialog.downloadLevel.Season': 'Download the section archive ({format}, {size})',
+        'dialog.downloadLevel.other': 'Download this archive ({format}, {size})',
         'dialog.contents': 'Contents',
         'dialog.downloadAll': 'Download all (.zip, {size})',
         'dialog.downloadFile': 'Download {name}',
@@ -208,11 +211,6 @@
         return contentsCache[itemId];
     }
 
-    // Course and section pages keep a direct download; lessons open their contents.
-    function isParent(tr) {
-        return tr.Type === 'Series' || tr.Type === 'Season' || tr.Type === 'Folder' || tr.Groups.length > 0;
-    }
-
     // Open the contents view for an item.
     function activate(client, itemId) {
         return tree(client, itemId).then(function (tr) {
@@ -269,7 +267,6 @@
             '.am-foot{display:flex;justify-content:flex-end;gap:.6em;padding:.8em 1.2em 1em;border-top:1px solid rgba(255,255,255,.08);}',
             '.am-foot button{background:#00a4dc;border:none;color:#fff;border-radius:.3em;padding:.5em 1em;font:inherit;cursor:pointer;}',
             '.am-foot button:disabled{opacity:.4;cursor:default;}',
-            '.additionalMaterialContents .detailButton-content{display:flex;align-items:center;gap:.3em;}',
             '.additionalMaterialIndicator{background:rgba(0,0,0,.7);color:#fff;cursor:pointer;font-size:1.25em;width:1.6em;height:1.6em;}',
             '.additionalMaterialIndicator svg{width:1em;height:1em;}',
             '.additionalMaterialListButton .additionalMaterialIcon{font-size:1.67em;}',
@@ -538,12 +535,17 @@
             }
         }
         dialog.appendChild(body);
-        if (single) {
+        if (tr.Self) {
+            // The item's own archive, downloadable from the foot of the picker: everything when it is
+            // the only archive, otherwise this level's (the course's or section's) archive.
             var foot = el('div', 'am-foot');
             var one = !/\.zip$/i.test(tr.Self.FileName || '');
+            var levelKey = 'dialog.downloadLevel.' + tr.Type;
             var all = el('button', 'am-download-all', one
                 ? t('dialog.downloadOne', { name: tr.Self.FileName, size: formatSize(tr.Self.Size) })
-                : t('dialog.downloadAll', { size: formatSize(tr.Self.Size) }));
+                : single
+                    ? t('dialog.downloadAll', { size: formatSize(tr.Self.Size) })
+                    : t(t(levelKey) !== levelKey ? levelKey : 'dialog.downloadLevel.other', { format: formatOf(tr.Self.FileName), size: formatSize(tr.Self.Size) }));
             all.type = 'button';
             all.disabled = !tr.CanDownload;
             all.addEventListener('click', function () { download(client, tr.Self.ItemId, all); });
@@ -562,54 +564,25 @@
     }
 
     // ---- item page button ------------------------------------------------------------------------
+    // One button on every page: it opens the picker, which downloads from there.
     function makeButton(client, itemId, tr) {
         var button = document.createElement('button');
         button.type = 'button';
         button.className = 'emby-button button-flat detailButton ' + BUTTON_CLASS;
         button.dataset.itemId = itemId;
-        var direct = isParent(tr) && tr.Self;   // course/section with its own archive: download it
+        var count = countOf(tr);
         var label;
-        if (direct) {
-            label = t('button.label', { format: formatOf(tr.Self.FileName), size: formatSize(tr.Self.Size) });
-            if (!tr.CanDownload) {
-                label = t('button.noPermission', { label: label });
-                button.disabled = true;
-            }
-        } else if (tr.Self && tr.Groups.length === 0) {
+        if (tr.Self && tr.Groups.length === 0) {
             label = t('button.contentsOf', { format: formatOf(tr.Self.FileName), size: formatSize(tr.Self.Size) });
         } else {
-            label = t('button.count', { count: countOf(tr) });
+            label = t(count === 1 ? 'button.countOne' : 'button.count', { count: count });
         }
         button.title = label;
         button.setAttribute('aria-label', label);
         var content = el('div', 'detailButton-content');
         content.appendChild(iconElement('detailButton-icon additionalMaterialIcon'));
         button.appendChild(content);
-        button.addEventListener('click', function () {
-            if (direct) {
-                download(client, itemId, button);
-            } else {
-                activate(client, itemId);
-            }
-        });
-        return button;
-    }
-
-    // The Contents button beside a course's or section's direct download.
-    function makeContentsButton(client, itemId, tr) {
-        var button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'emby-button button-flat detailButton ' + BUTTON_CLASS + ' additionalMaterialContents';
-        button.dataset.itemId = itemId;
-        var label = t('button.contents', { count: countOf(tr) });
-        button.title = label;
-        button.setAttribute('aria-label', label);
-        var content = el('div', 'detailButton-content');
-        var icon = el('span', 'material-icons detailButton-icon list_alt');
-        icon.setAttribute('aria-hidden', 'true');
-        content.appendChild(icon);
-        button.appendChild(content);
-        button.addEventListener('click', function () { openDialog(client, tr); });
+        button.addEventListener('click', function () { activate(client, itemId); });
         return button;
     }
 
@@ -634,11 +607,7 @@
             }
             if (bar.isConnected && !bar.querySelector('.' + BUTTON_CLASS + '[data-item-id="' + itemId + '"]')) {
                 var anchor = bar.querySelector('.btnDownload');
-                var main = makeButton(client, itemId, tr);
-                bar.insertBefore(main, anchor ? anchor.nextSibling : null);
-                if (isParent(tr) && tr.Self) {
-                    bar.insertBefore(makeContentsButton(client, itemId, tr), main.nextSibling);
-                }
+                bar.insertBefore(makeButton(client, itemId, tr), anchor ? anchor.nextSibling : null);
             }
         }).catch(function (err) {
             window.console && console.warn('Additional Material: could not add the button', err);
@@ -665,7 +634,8 @@
         if (!status) {  // false: settled, no material
             return;
         }
-        var label = status.Own && status.Below === 0 ? t('dialog.title') : t('button.count', { count: (status.Own ? 1 : 0) + status.Below });
+        var n = (status.Own ? 1 : 0) + status.Below;
+        var label = status.Own && status.Below === 0 ? t('dialog.title') : t(n === 1 ? 'button.countOne' : 'button.count', { count: n });
         var handler = function (e) {
             e.preventDefault();
             e.stopPropagation();

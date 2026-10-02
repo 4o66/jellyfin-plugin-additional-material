@@ -42,8 +42,9 @@ The plugin never touches archives it did not build: **a course that already has 
 - **Lesson (episode or movie) pages:** the Additional Material button opens **Contents**, a file
   tree of the lesson's archive. Every file has its own Download button; **Download all (.zip)**
   downloads the archive.
-- **Course and section pages:** the button downloads that level's archive directly, and a
-  **Contents** button lists every archive below, grouped by section, each expandable to its files.
+- **Course and section pages:** the same button opens the picker: every archive at and below that
+  level, grouped by section, each expandable to its files, with **Download the course (section)
+  archive** at the bottom.
 - **Grid cards and list rows:** a small icon; clicking it opens the listing.
 - Zips inside an archive are listed too, and their files downloadable (a setting).
 - Without the Download permission, users see the contents with the download buttons disabled.

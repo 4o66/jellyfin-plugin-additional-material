@@ -40,7 +40,6 @@
   "config.cards": "Show the icon on cards in grid views",
   "config.lists": "Show the icon on rows in list views",
   "button.contentsOf": "Additional material ({format}, {size}): show contents",
-  "button.contents": "Contents: {count} archives",
   "dialog.contents": "Contents",
   "dialog.downloadAll": "Download all (.zip, {size})",
   "dialog.downloadFile": "Download {name}",
@@ -109,5 +108,9 @@
   "config.building.result": "{planned} archives planned, {current} built and up to date. {alone} courses have their own archives and are left as they are.",
   "config.building.failed": "{failed} could not be built; see the server log.",
   "dialog.openLink": "Open link ↗",
-  "dialog.opensSite": "a link to {host}"
+  "dialog.opensSite": "a link to {host}",
+  "button.countOne": "Additional material: 1 archive",
+  "dialog.downloadLevel.Series": "Download the course archive ({format}, {size})",
+  "dialog.downloadLevel.Season": "Download the section archive ({format}, {size})",
+  "dialog.downloadLevel.other": "Download this archive ({format}, {size})"
 }
