@@ -329,7 +329,7 @@ public class AdditionalMaterialController : ControllerBase
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         Response.Headers["Referrer-Policy"] = "no-referrer";
         Response.Headers["Cache-Control"] = "private, no-store";
-        return PhysicalFile(material.FullPath, MaterialLocator.ContentTypeFor(material.Format), material.FileName, enableRangeProcessing: true);
+        return PhysicalFile(material.FullPath, MaterialLocator.ContentTypeFor(material.Format), DownloadName(item!), enableRangeProcessing: true);
     }
 
     /// <summary>The web-client script that adds the button. Public, like the web client itself.</summary>
@@ -345,7 +345,8 @@ public class AdditionalMaterialController : ControllerBase
             return NotFound();
         }
 
-        Response.Headers["Cache-Control"] = "public, max-age=3600";
+        // Always revalidate: the address already changes per build, and an old copy must never linger.
+        Response.Headers["Cache-Control"] = "no-cache";
         return File(stream, "application/javascript; charset=utf-8");
     }
 
@@ -403,6 +404,44 @@ public class AdditionalMaterialController : ControllerBase
         using var stream = assembly.GetManifestResourceStream(name);
         return stream is null ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(stream);
     }
+
+    /// <summary>
+    /// A file name that says what the archive is, e.g.
+    /// "Course - S10E01 - Lesson title - Additional Material.zip".
+    /// </summary>
+    internal static string DownloadName(BaseItem item)
+    {
+        string name = item switch
+        {
+            Episode e => string.Join(" - ", new[]
+            {
+                e.SeriesName,
+                e.ParentIndexNumber is int s && e.IndexNumber is int n
+                    ? string.Format(CultureInfo.InvariantCulture, "S{0:00}E{1:00}", s, n)
+                    : null,
+                e.Name,
+            }.Where(x => !string.IsNullOrWhiteSpace(x))),
+            Season s => string.Join(" - ", new[]
+            {
+                s.SeriesName,
+                s.IndexNumber is int n && !s.Name.StartsWith(n.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+                    ? n.ToString(CultureInfo.InvariantCulture) + " " + s.Name
+                    : s.Name,
+            }.Where(x => !string.IsNullOrWhiteSpace(x))),
+            _ => item.Name,
+        };
+        var cleaned = new string((name + " - Additional Material").Select(c => Array.IndexOf(BadFileNameChars, c) >= 0 || char.IsControl(c) ? ' ' : c).ToArray());
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", " ").Trim().TrimEnd('.');
+        if (cleaned.Length > 180)
+        {
+            cleaned = cleaned[..180].TrimEnd();
+        }
+
+        return cleaned + ".zip";
+    }
+
+    // Characters Windows, macOS and Linux file systems refuse, plus the path separators.
+    private static readonly char[] BadFileNameChars = { '<', '>', ':', '"', '/', '\\', '|', '?', '*' };
 
     private static bool CanDownload(User user) =>
         !(Plugin.Instance?.Configuration.RequireDownloadPermission ?? true)

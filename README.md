@@ -51,7 +51,7 @@ Only `.zip` is recognized in this version.
 ## Installing
 
 Until a release is published: build it (see below), copy
-`Jellyfin.Plugin.AdditionalMaterial.dll` into a folder named `Additional Material_1.1.0.0` in
+`Jellyfin.Plugin.AdditionalMaterial.dll` into a folder named `Additional Material_1.1.1.0` in
 Jellyfin's `plugins` directory, and restart Jellyfin.
 
 The **web button** needs the [File Transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation)

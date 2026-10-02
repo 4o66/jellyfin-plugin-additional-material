@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 (unreleased)
+
+- Downloads get descriptive names: "Course - S10E01 - Lesson - Additional Material.zip".
+- Browsers always get a fresh index.html, so plugin updates show up at once. (File
+  Transformation rewrites the page, but the server answered "not modified" from the file on disk.)
+- The web script is no longer cached for an hour.
+
 ## 1.1.0 (unreleased)
 
 - Course and section pages list the material below them, grouped by section, with Go to lesson

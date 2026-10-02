@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.AdditionalMaterial.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.AdditionalMaterial;
@@ -13,5 +14,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<MaterialLocator>();
         serviceCollection.AddSingleton<LinkSigner>();
+        serviceCollection.AddTransient<IStartupFilter, FreshIndexStartupFilter>();
     }
 }

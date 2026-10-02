@@ -54,8 +54,8 @@ mk "$WORK/media/other/Course B" additional-material.zip      # library not enabl
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.1.0.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.1.0.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.1.1.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.1.1.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8096" \
@@ -163,6 +163,8 @@ code=$(curl -s -D "$WORK/h" -o "$WORK/got" -w '%{http_code}' "$BASE/AdditionalMa
 check "download: 200" "$code" 200
 check "download: bytes match the file" "$(sha256sum < "$WORK/got" | cut -c1-64)" "$(sha256sum < "$T/Season 1/S01E01 - Lesson One.material.zip" | cut -c1-64)"
 grep -qi '^content-disposition: attachment' "$WORK/h" && ok "download: sent as attachment" || bad "download: sent as attachment"
+grep -qiE "^content-disposition: attachment; filename=\"?[^\"]+ - S01E01 - [^\"]+ - Additional Material\.zip" "$WORK/h" && ok "download: descriptive file name" || bad "download: descriptive file name ($(grep -i '^content-disposition' "$WORK/h" | tr -d '\r'))"
+check "index.html is never answered 'not modified'" "$(curl -s -o /dev/null -w '%{http_code}' -H "If-Modified-Since: $(date -u -R)" "$BASE/web/index.html")" 200
 grep -qi '^content-type: application/zip' "$WORK/h" && ok "download: content type zip" || bad "download: content type zip"
 check "download: range request 206" "$(curl -s -o /dev/null -w '%{http_code}' -r 0-9 "$BASE/AdditionalMaterial/Download/$TOKEN")" 206
 # Flip a character in the middle (it carries payload bits), and try a non-canonical last character.
