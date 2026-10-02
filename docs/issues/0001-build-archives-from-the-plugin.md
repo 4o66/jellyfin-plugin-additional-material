@@ -1,6 +1,6 @@
 # Build archives from the plugin (scheduled task)
 
-*Draft issue, to file on GitHub. Considered for a future version; not in 1.0.*
+*Filed as [#1](https://github.com/4o66/jellyfin-plugin-additional-material/issues/1). Considered for a future version; not in 1.0.*
 
 ## Idea
 
