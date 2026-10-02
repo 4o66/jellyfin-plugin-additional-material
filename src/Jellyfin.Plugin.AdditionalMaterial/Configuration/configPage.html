@@ -39,6 +39,35 @@
                     </div>
 
                     <div class="verticalSection">
+                        <h3 class="sectionTitle" data-i18n="config.levels">Show material from lower levels on</h3>
+                        <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
+                            <input type="radio" name="amLevels" value="item" />
+                            <span data-i18n="config.levelsItem">Only the item it belongs to</span>
+                        </label>
+                        <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
+                            <input type="radio" name="amLevels" value="section" />
+                            <span data-i18n="config.levelsSection">Its section too</span>
+                        </label>
+                        <label class="emby-checkbox-label" style="display:block;">
+                            <input type="radio" name="amLevels" value="all" />
+                            <span data-i18n="config.levelsAll">Its section and course</span>
+                        </label>
+                        <div class="fieldDescription" data-i18n="config.levelsHelp">On a course or section page, the button then lists the archives below it, with links to each lesson.</div>
+                        <div class="checkboxContainer" style="margin-top:1em;">
+                            <label class="emby-checkbox-label">
+                                <input id="amCards" type="checkbox" is="emby-checkbox" />
+                                <span data-i18n="config.cards">Show the icon on cards in grid views</span>
+                            </label>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="amLists" type="checkbox" is="emby-checkbox" />
+                                <span data-i18n="config.lists">Show the icon on rows in list views</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
                         <h3 class="sectionTitle" data-i18n="config.buttonStyle">Button style</h3>
                         <div style="display:flex; gap:1.5em; align-items:center; flex-wrap:wrap;">
                             <div>
@@ -109,7 +138,11 @@
                         list.appendChild(row);
                     });
                     page.querySelector('#amRequireDownload').checked = config.RequireDownloadPermission !== false;
-                    var style = config.ButtonStyle === 'color' ? 'color' : 'mono';
+                    var style = config.ButtonStyle === 'mono' ? 'mono' : 'color';
+                    var levels = ['item', 'section', 'all'].indexOf(config.ShowOnParents) >= 0 ? config.ShowOnParents : 'all';
+                    page.querySelector('input[name=amLevels][value=' + levels + ']').checked = true;
+                    page.querySelector('#amCards').checked = config.ShowOnCards !== false;
+                    page.querySelector('#amLists').checked = config.ShowInLists !== false;
                     page.querySelector('input[name=amStyle][value=' + style + ']').checked = true;
                     page.querySelector('#amAccent').value = /^#[0-9A-Fa-f]{6}$/.test(config.AccentColor || '') ? config.AccentColor : '#00A4DC';
                     preview();
@@ -160,6 +193,10 @@
                         config.LinkLifetimeMinutes = parseInt(page.querySelector('#amLinkMinutes').value, 10) || 10;
                         config.ButtonStyle = page.querySelector('input[name=amStyle][value=color]').checked ? 'color' : 'mono';
                         config.AccentColor = page.querySelector('#amAccent').value || '#00A4DC';
+                        var lv = page.querySelector('input[name=amLevels]:checked');
+                        config.ShowOnParents = lv ? lv.value : 'all';
+                        config.ShowOnCards = page.querySelector('#amCards').checked;
+                        config.ShowInLists = page.querySelector('#amLists').checked;
                         ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
                     });
                     return false;

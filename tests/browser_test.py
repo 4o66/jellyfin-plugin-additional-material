@@ -25,7 +25,7 @@ def check(name, ok, detail=""):
     print(("PASS  " if ok else "FAIL  ") + name + (f"  ({detail})" if detail and not ok else ""))
 
 
-def api(path, token=None, data=None):
+def api(path, token=None, data=None):  # noqa: D103
     headers = {"Content-Type": "application/json", "Authorization": CLIENT + (f', Token="{token}"' if token else "")}
     req = urllib.request.Request(BASE + path, data=json.dumps(data).encode() if data is not None else None, headers=headers)
     with urllib.request.urlopen(req) as r:
@@ -46,6 +46,10 @@ server = api("/System/Info/Public")
 admin_token, admin_id = login("admin", creds["admin"])
 reader_token, reader_id = login("reader", creds["users"])
 series = item_id(admin_token, "Series", "/media/training/Course A")
+season1 = item_id(admin_token, "Season", "/media/training/Course A/Season 1")
+lesson1 = item_id(admin_token, "Episode", "/media/training/Course A/Season 1/S01E01 - Lesson One.mp4")
+training = next(v["ItemId"] for v in api("/Library/VirtualFolders", admin_token) if v["Name"] == "training")
+expected_lesson = hashlib.sha256(open("/am/media/training/Course A/Season 1/S01E01 - Lesson One.material.zip", "rb").read()).hexdigest()
 plain = item_id(admin_token, "Episode", "/media/training/Course A/Season 2/S02E01 - Sneaky.mp4")
 expected = hashlib.sha256(open("/am/media/training/Course A/additional-material.zip", "rb").read()).hexdigest()
 
@@ -78,12 +82,35 @@ with sync_playwright() as p:
     page.screenshot(path="/t/screenshot-course.png")
     if button.count():
         check("button is enabled for a user with download permission", button.is_enabled())
-        check("tooltip names the format and size", "ZIP" in (button.get_attribute("title") or ""), button.get_attribute("title"))
+        check("course button counts all archives below", "3 archives" in (button.get_attribute("title") or ""), button.get_attribute("title"))
+        button.click()
+        dialog = page.locator(".am-dialog")
+        try:
+            dialog.wait_for(timeout=10000)
+            check("course button opens the listing", True)
+        except Exception as e:  # noqa: BLE001
+            check("course button opens the listing", False, str(e)[:120])
+        page.screenshot(path="/t/screenshot-listing.png")
+        check("listing has course, section and lesson rows", dialog.locator(".am-row").count() == 3, str(dialog.locator(".am-row").count()))
         with page.expect_download(timeout=30000) as d:
-            button.click()
-        path = d.value.path()
-        check("click downloads the archive", d.value.suggested_filename == "additional-material.zip", d.value.suggested_filename)
-        check("downloaded bytes match", hashlib.sha256(open(path, "rb").read()).hexdigest() == expected)
+            dialog.locator(".am-row").nth(0).locator(".am-download").click()
+        check("listing downloads the course archive", hashlib.sha256(open(d.value.path(), "rb").read()).hexdigest() == expected)
+        lesson_row = dialog.locator(".am-row").nth(2)   # names may come from online metadata; the lesson row is last
+        with page.expect_download(timeout=30000) as d:
+            lesson_row.locator(".am-download").click()
+        check("listing downloads a lesson archive", hashlib.sha256(open(d.value.path(), "rb").read()).hexdigest() == expected_lesson)
+        lesson_row.locator(".am-goto").click()
+        page.wait_for_timeout(1500)
+        check("Go to lesson opens the lesson page", lesson1 in page.url.replace("-", ""), page.url)
+        check("listing closes on Go to lesson", page.locator(".am-dialog").count() == 0)
+        page.wait_for_selector(".itemDetailPage:not(.hide) .additionalMaterialButton", timeout=20000)
+        lb = page.locator(".itemDetailPage:not(.hide) .additionalMaterialButton")
+        check("lesson button names format and size", "ZIP" in (lb.get_attribute("title") or ""), lb.get_attribute("title"))
+        with page.expect_download(timeout=30000) as d:
+            lb.click()
+        check("lesson button downloads directly", hashlib.sha256(open(d.value.path(), "rb").read()).hexdigest() == expected_lesson)
+        open_details(page, series)
+        page.wait_for_selector(".itemDetailPage:not(.hide) .additionalMaterialButton", timeout=20000)
     if button.count():
         color = page.evaluate("() => getComputedStyle(document.querySelector('.additionalMaterialIcon')).getPropertyValue('--am-accent').trim()")
         check("two-color style puts the accent on the badge", color.lower() == "#db781b", color)
@@ -95,6 +122,48 @@ with sync_playwright() as p:
     page.wait_for_timeout(3000)
     check("exactly one button after returning to the course", page.locator(".additionalMaterialButton").count() == 1,
           str(page.locator(".additionalMaterialButton").count()))
+    # Grid: the training library's series cards
+    page.goto(f"{BASE}/web/#/tv?topParentId={training}&serverId={server['Id']}")
+    try:
+        page.wait_for_selector(".card .additionalMaterialIndicator", timeout=30000)
+        check("grid card shows the indicator", True)
+        last = page.evaluate("() => { const i = document.querySelector('.additionalMaterialIndicator'); return i.parentElement.classList.contains('cardIndicators') && i === i.parentElement.lastElementChild; }")
+        check("indicator is last in the card's top-right row", last)
+        before = page.url
+        # Click where the pointer is, as a person would: the card's hover overlay covers the indicator,
+        # and Playwright's locator.click() refuses covered elements.
+        # Jellyfin redraws cards as images load; wait until the indicator is settled and visible.
+        page.wait_for_load_state("networkidle")
+        box = None
+        for _ in range(10):
+            ind = page.locator(".card .additionalMaterialIndicator:visible").first
+            ind.wait_for(state="visible", timeout=10000)
+            page.wait_for_timeout(500)
+            box = ind.bounding_box()
+            if box:
+                break
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.wait_for_timeout(300)
+        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.locator(".am-dialog").wait_for(timeout=10000)
+        check("clicking the indicator opens the listing, not the item", page.url == before, page.url)
+        page.screenshot(path="/t/screenshot-grid.png")
+        page.keyboard.press("Escape")
+        check("Escape closes the listing", page.locator(".am-dialog").count() == 0)
+    except Exception as e:  # noqa: BLE001
+        check("grid card shows the indicator", False, str(e)[:120])
+        page.screenshot(path="/t/screenshot-grid.png")
+    # List: the season page lists its episodes
+    open_details(page, season1)
+    try:
+        page.wait_for_selector(".listItem .additionalMaterialListButton", timeout=30000)
+        check("list row shows the icon", True)
+        beside = page.evaluate("() => { const b = document.querySelector('.additionalMaterialListButton'); const n = b.nextElementSibling; return !!n && n.getAttribute('is') === 'emby-ratingbutton'; }")
+        check("list icon sits beside the favorite heart", beside)
+        page.screenshot(path="/t/screenshot-list.png")
+    except Exception as e:  # noqa: BLE001
+        check("list row shows the icon", False, str(e)[:120])
+        page.screenshot(path="/t/screenshot-list.png")
     page.goto(f"{BASE}/web/#/dashboard")
     try:
         page.get_by_text("Additional Material", exact=True).first.wait_for(timeout=30000)
@@ -117,10 +186,21 @@ with sync_playwright() as p:
     button = page.locator(".itemDetailPage:not(.hide) .additionalMaterialButton")
     try:
         button.wait_for(timeout=20000)
-        check("user without download permission sees the button disabled", not button.is_enabled())
+        button.click()
+        page.locator(".am-dialog").wait_for(timeout=10000)
+        disabled = page.evaluate("() => [...document.querySelectorAll('.am-download')].every(b => b.disabled)")
+        check("no download permission: listing's Download buttons are disabled", disabled)
+        check("no download permission: listing says so", page.locator(".am-note").count() >= 1)
     except Exception as e:  # noqa: BLE001
-        check("user without download permission sees the button disabled", False, str(e)[:120])
+        check("no download permission: listing's Download buttons are disabled", False, str(e)[:120])
     page.screenshot(path="/t/screenshot-no-permission.png")
+    open_details(page, lesson1)
+    try:
+        lb = page.locator(".itemDetailPage:not(.hide) .additionalMaterialButton")
+        lb.wait_for(timeout=20000)
+        check("no download permission: lesson button is disabled", not lb.is_enabled())
+    except Exception as e:  # noqa: BLE001
+        check("no download permission: lesson button is disabled", False, str(e)[:120])
     ctx.close()
     browser.close()
 

@@ -123,9 +123,31 @@ check "lesson archive found"                "$(info "$ADMIN" "$E1" | jq -r '.Fil
 check ".7z is ignored"                      "$(info "$ADMIN" "$E2" | jq -r '.Available')" false
 check "link escaping library refused"       "$(info "$ADMIN" "$E3" | jq -r '.Available')" false
 check "library not enabled: ignored"        "$(info "$ADMIN" "$SERIESB" | jq -r '.Available')" false
-check "style defaults to one color"      "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle + " " + .AccentColor')" "mono #00A4DC"
-curl "${A[@]}" "$BASE/Plugins/$GUID/Configuration" | jq '.ButtonStyle="color" | .AccentColor="#DB781B"' | curl "${A[@]}" -X POST "$BASE/Plugins/$GUID/Configuration" -d @- >/dev/null
+check "style defaults to two colors"     "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle + " " + .AccentColor')" "color #00A4DC"
+check "display settings defaults"        "$(as "$ADMIN" "$BASE/AdditionalMaterial/web/settings" | jq -c '[.ButtonStyle,.ShowOnParents,.ShowOnCards,.ShowInLists]')" '["color","all",true,true]'
+cfg() { curl "${A[@]}" "$BASE/Plugins/$GUID/Configuration" | jq "$1" | curl "${A[@]}" -X POST "$BASE/Plugins/$GUID/Configuration" -d @- >/dev/null; }
+cfg '.ButtonStyle="mono"';  check "one-color style saved" "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle')" mono
+cfg '.ButtonStyle="color" | .AccentColor="#DB781B"'
 check "two-color style and accent saved"  "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle + " " + .AccentColor')" "color #DB781B"
+
+# ---- listings (tree) and batch status ---------------------------------------------------------
+tree() { as "$1" "$BASE/AdditionalMaterial/Items/$2/Tree"; }
+check "tree: course lists self + section + lesson" "$(tree "$ADMIN" "$SERIES" | jq -c '[(.Self!=null), [.Groups[].Items[] | .Level]]')" '[true,["section","lesson"]]'
+check "tree: rows carry names and item ids"        "$(tree "$ADMIN" "$SERIES" | jq -r '.Groups[0].Items[1].ItemId')" "$E1"
+check "tree: section lists its lesson"             "$(tree "$ADMIN" "$SEASON1" | jq -c '[(.Self!=null), [.Groups[].Items[] | .Level]]')" '[true,["lesson"]]'
+check "tree: lesson has only itself"               "$(tree "$ADMIN" "$E1" | jq -c '[(.Self!=null), (.Groups|length)]')" '[true,0]'
+check "tree: type and name"                        "$(tree "$ADMIN" "$SERIES" | jq -r '.Type')" Series
+st() { as "$1" -X POST -H "Content-Type: application/json" "$BASE/AdditionalMaterial/Items/Status" -d "{\"Ids\":[\"$SERIES\",\"$SEASON1\",\"$E1\",\"$E3\",\"$SERIESB\"]}"; }
+check "status: own and below counts"  "$(st "$ADMIN" | jq -c --arg s "$SERIES" --arg n "$SEASON1" --arg e "$E1" '[.[$s].Own,.[$s].Below,.[$n].Below,.[$e].Below]')" '[true,2,1,0]'
+check "status: items without material omitted" "$(st "$ADMIN" | jq -c --arg a "$E3" --arg b "$SERIESB" '[has($a),has($b)]')" '[false,false]'
+check "status: no access, nothing returned"     "$(st "$OUTSIDE" | jq 'length')" 0
+cfg '.ShowOnParents="section"'; sleep 1
+check "levels=section: course shows only its own" "$(tree "$ADMIN" "$SERIES" | jq '.Groups|length')" 0
+check "levels=section: section still lists lesson" "$(tree "$ADMIN" "$SEASON1" | jq '[.Groups[].Items[]]|length')" 1
+cfg '.ShowOnParents="item"'; sleep 1
+check "levels=item: section shows only its own"   "$(tree "$ADMIN" "$SEASON1" | jq '.Groups|length')" 0
+cfg '.ShowOnParents="all"'
+check "outsider cannot list the course"           "$(as "$OUTSIDE" -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Items/$SERIES/Tree")" 404
 curl "${A[@]}" "$BASE/Plugins/$GUID/Configuration" | jq '.AccentColor="red;}<script>"' | curl "${A[@]}" -X POST "$BASE/Plugins/$GUID/Configuration" -d @- >/dev/null
 check "invalid accent falls back"         "$(info "$ADMIN" "$SERIES" | jq -r '.AccentColor')" "#00A4DC"
 curl "${A[@]}" "$BASE/Plugins/$GUID/Configuration" | jq '.AccentColor="#DB781B"' | curl "${A[@]}" -X POST "$BASE/Plugins/$GUID/Configuration" -d @- >/dev/null

@@ -39,6 +39,15 @@ Training/
 
 Only `.zip` is recognized in this version.
 
+**Where the icon appears:**
+
+- **Item pages,** next to Play. On a lesson it downloads that lesson's zip. On a course or section
+  it shows how many zips are at or below it, and opens a **listing grouped by section**, with
+  *Go to lesson* and *Download* on each row.
+- **Grid views:** on each card's top-right corner, after the unwatched count. Clicking it opens
+  the same listing without opening the item.
+- **List views:** beside the favorite heart.
+
 ## Installing
 
 Until a release is published: build it (see below), copy
@@ -58,8 +67,11 @@ Dashboard → Plugins → **Additional Material**:
   the button disabled.
 - **Download link lifetime:** how long a download has to start after the button is pressed
   (default 10 minutes).
-- **Button style:** one color (follows the theme, like the buttons beside it), or two colors
-  with the plus badge in an accent color you pick (default Jellyfin's `#00A4DC`).
+- **Show material from lower levels on:** only the item it belongs to, its section too, or its
+  section and course (default).
+- **Show the icon on cards in grid views** and **on rows in list views** (both on by default).
+- **Button style:** two colors (default), with the plus badge in an accent color you pick
+  (default Jellyfin's `#00A4DC`), or one color that follows the theme like the buttons beside it.
 
 The plugin also adds an **Additional Material** entry to the dashboard sidebar.
 
@@ -179,9 +191,9 @@ docker run --rm -v "$PWD:/src" -w /src mcr.microsoft.com/dotnet/sdk:10.0 \
   VirusTotal server).
 - `tests/integration.sh out [file-transformation-plugin-dir]`: starts a throwaway Jellyfin
   12.1 container with sample media and checks lookups, permissions, path safety, signed links,
-  downloads and the web injection (25 checks). `tests/integration.sh --cleanup` removes it.
+  downloads, listings, batch lookups and the web injection (46 checks). `tests/integration.sh --cleanup` removes it.
 - `tests/browser_test.py`: drives the web client in headless Chromium against that server
-  (8 checks). The command is in the file's header.
+  (27 checks): item-page button, listing, grid and list icons, settings page. The command is in the file's header.
 
 ## License
 

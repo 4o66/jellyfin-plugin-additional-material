@@ -56,7 +56,13 @@ public sealed class MaterialLocator
     /// <summary>Finds the archive for <paramref name="item"/>, or returns <c>null</c>.</summary>
     /// <param name="item">An item the caller is already allowed to see.</param>
     /// <returns>The archive, or <c>null</c> if there is none or the item's library is not enabled.</returns>
-    public MaterialFile? Find(BaseItem item)
+    public MaterialFile? Find(BaseItem item) => Find(item, null);
+
+    /// <summary>Finds the archive for <paramref name="item"/>, reusing directory listings across calls.</summary>
+    /// <param name="item">An item the caller is already allowed to see.</param>
+    /// <param name="listings">Directory listings already read in this request, or <c>null</c>.</param>
+    /// <returns>The archive, or <c>null</c>.</returns>
+    public MaterialFile? Find(BaseItem item, Dictionary<string, string[]>? listings)
     {
         if (item is CollectionFolder || item is AggregateFolder || string.IsNullOrEmpty(item.Path))
         {
@@ -91,15 +97,23 @@ public sealed class MaterialLocator
             return null;
         }
 
-        string[] names;
-        try
+        string[]? names = null;
+        if (listings is null || !listings.TryGetValue(directory, out names))
         {
-            names = Directory.EnumerateFiles(directory).ToArray();
-        }
-        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-        {
-            _logger.LogWarning(ex, "Additional Material: cannot list {Directory}", directory);
-            return null;
+            try
+            {
+                names = Directory.EnumerateFiles(directory).ToArray();
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Additional Material: cannot list {Directory}", directory);
+                return null;
+            }
+
+            if (listings is not null)
+            {
+                listings[directory] = names;
+            }
         }
 
         var matches = _extensions
