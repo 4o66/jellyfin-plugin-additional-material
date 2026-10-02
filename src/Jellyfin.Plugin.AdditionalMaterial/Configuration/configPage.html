@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Additional Material</title>
+</head>
+<body>
+    <div id="AdditionalMaterialConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="AdditionalMaterialConfigForm">
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Additional Material</h2>
+                        <p>
+                            Offers a download button on items that have an archive stored beside them:
+                        </p>
+                        <ul>
+                            <li><code>additional-material.zip</code> in a series (course) or season (section) folder</li>
+                            <li><code>&lt;video file name&gt;.material.zip</code> beside an episode (lesson) or movie</li>
+                        </ul>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h3 class="sectionTitle">Libraries</h3>
+                        <div class="fieldDescription">The plugin only looks in the libraries ticked here.</div>
+                        <div id="amLibraries" class="checkboxList paperList" style="padding: 0.5em 1em;"></div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="amRequireDownload" type="checkbox" is="emby-checkbox" />
+                                <span>Require the "Allow media downloading" permission</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                Users without it see the button disabled. This is the permission Jellyfin's own Download button uses.
+                            </div>
+                        </div>
+                        <div class="inputContainer">
+                            <input id="amLinkMinutes" type="number" is="emby-input" min="1" max="1440" label="Download link lifetime (minutes)" />
+                            <div class="fieldDescription">How long a download has to start after the button is pressed.</div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            (function () {
+                var pluginId = '10121f36-d2e1-4b8d-96c4-b2cc720880f3';
+                var page = document.querySelector('#AdditionalMaterialConfigPage');
+
+                function normalize(id) {
+                    return String(id || '').replace(/-/g, '').toLowerCase();
+                }
+
+                function render(config, folders) {
+                    var enabled = (config.EnabledLibraryIds || []).map(normalize);
+                    var list = page.querySelector('#amLibraries');
+                    list.innerHTML = '';
+                    folders.forEach(function (folder) {
+                        var label = document.createElement('label');
+                        label.className = 'emby-checkbox-label';
+                        var input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.setAttribute('is', 'emby-checkbox');
+                        input.dataset.libraryId = folder.ItemId;
+                        input.checked = enabled.indexOf(normalize(folder.ItemId)) !== -1;
+                        var span = document.createElement('span');
+                        span.textContent = folder.Name + (folder.CollectionType ? ' (' + folder.CollectionType + ')' : '');
+                        label.appendChild(input);
+                        label.appendChild(span);
+                        var row = document.createElement('div');
+                        row.className = 'checkboxContainer';
+                        row.appendChild(label);
+                        list.appendChild(row);
+                    });
+                    page.querySelector('#amRequireDownload').checked = config.RequireDownloadPermission !== false;
+                    page.querySelector('#amLinkMinutes').value = config.LinkLifetimeMinutes || 10;
+                }
+
+                page.addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    Promise.all([ApiClient.getPluginConfiguration(pluginId), ApiClient.getVirtualFolders()]).then(function (results) {
+                        render(results[0], results[1] || []);
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+                page.querySelector('#AdditionalMaterialConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.EnabledLibraryIds = Array.prototype.map.call(
+                            page.querySelectorAll('#amLibraries input:checked'),
+                            function (input) { return input.dataset.libraryId; });
+                        config.RequireDownloadPermission = page.querySelector('#amRequireDownload').checked;
+                        config.LinkLifetimeMinutes = parseInt(page.querySelector('#amLinkMinutes').value, 10) || 10;
+                        ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
+                    });
+                    return false;
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>
