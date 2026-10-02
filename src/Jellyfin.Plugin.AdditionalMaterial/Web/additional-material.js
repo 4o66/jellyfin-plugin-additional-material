@@ -75,10 +75,11 @@
     }
 
     function makeButton(client, itemId, info) {
-        var button = document.createElement('button', { is: 'emby-button' });
-        button.setAttribute('is', 'emby-button');
+        // A plain button with the web client's classes. Creating it as jellyfin-web's own
+        // "emby-button" element runs internal code that throws on elements it did not render.
+        var button = document.createElement('button');
         button.type = 'button';
-        button.className = 'button-flat detailButton ' + BUTTON_CLASS;
+        button.className = 'emby-button button-flat detailButton ' + BUTTON_CLASS;
         button.dataset.itemId = itemId;
         var label = 'Additional material (' + String(info.Format || '').toUpperCase() + ', ' + formatSize(info.Size) + ')';
         if (!info.CanDownload) {
@@ -125,6 +126,8 @@
                 var anchor = bar.querySelector('.btnDownload');
                 bar.insertBefore(makeButton(client, itemId, info), anchor ? anchor.nextSibling : null);
             }
+        }).catch(function (err) {
+            window.console && console.warn('Additional Material: could not add the button', err);
         });
     }
 
