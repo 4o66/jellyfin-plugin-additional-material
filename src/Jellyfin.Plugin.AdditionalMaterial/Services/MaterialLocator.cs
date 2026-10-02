@@ -37,14 +37,17 @@ public sealed class MaterialLocator
     private static readonly string[] _extensions = [".zip"];
 
     private readonly ILibraryManager _libraryManager;
+    private readonly MaterialIndex _index;
     private readonly ILogger<MaterialLocator> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="MaterialLocator"/> class.</summary>
     /// <param name="libraryManager">Library manager.</param>
+    /// <param name="index">The folder index.</param>
     /// <param name="logger">Logger.</param>
-    public MaterialLocator(ILibraryManager libraryManager, ILogger<MaterialLocator> logger)
+    public MaterialLocator(ILibraryManager libraryManager, MaterialIndex index, ILogger<MaterialLocator> logger)
     {
         _libraryManager = libraryManager;
+        _index = index;
         _logger = logger;
     }
 
@@ -53,16 +56,20 @@ public sealed class MaterialLocator
     /// <returns>The MIME type.</returns>
     public static string ContentTypeFor(string format) => "application/zip";
 
-    /// <summary>Finds the archive for <paramref name="item"/>, or returns <c>null</c>.</summary>
+    /// <summary>
+    /// Finds the archive for <paramref name="item"/> from the folder index, without touching the
+    /// disk. Good for showing icons; may be up to the index's refresh age out of date.
+    /// </summary>
     /// <param name="item">An item the caller is already allowed to see.</param>
     /// <returns>The archive, or <c>null</c> if there is none or the item's library is not enabled.</returns>
-    public MaterialFile? Find(BaseItem item) => Find(item, null);
+    public MaterialFile? Find(BaseItem item) => Find(item, verify: false);
 
-    /// <summary>Finds the archive for <paramref name="item"/>, reusing directory listings across calls.</summary>
+    /// <summary>Finds the archive for <paramref name="item"/>, checking the file itself on disk. Use before serving it.</summary>
     /// <param name="item">An item the caller is already allowed to see.</param>
-    /// <param name="listings">Directory listings already read in this request, or <c>null</c>.</param>
     /// <returns>The archive, or <c>null</c>.</returns>
-    public MaterialFile? Find(BaseItem item, Dictionary<string, string[]>? listings)
+    public MaterialFile? FindVerified(BaseItem item) => Find(item, verify: true);
+
+    private MaterialFile? Find(BaseItem item, bool verify)
     {
         if (item is CollectionFolder || item is AggregateFolder || string.IsNullOrEmpty(item.Path))
         {
@@ -77,12 +84,12 @@ public sealed class MaterialLocator
 
         string? directory;
         string baseName;
-        if (item is Video && File.Exists(item.Path))
+        if (item is Video && !item.IsFolder)
         {
             directory = Path.GetDirectoryName(item.Path);
             baseName = Path.GetFileNameWithoutExtension(item.Path) + VideoArchiveSuffix;
         }
-        else if (item is Folder && Directory.Exists(item.Path))
+        else if (item is Folder)
         {
             directory = item.Path;
             baseName = FolderArchiveName;
@@ -97,36 +104,33 @@ public sealed class MaterialLocator
             return null;
         }
 
-        string[]? names = null;
-        if (listings is null || !listings.TryGetValue(directory, out names))
+        var zips = _index.Zips(directory);
+        IndexedZip? zip = null;
+        foreach (var ext in _extensions)
         {
-            try
+            if (zips.TryGetValue((baseName + ext).ToLowerInvariant(), out zip))
             {
-                names = Directory.EnumerateFiles(directory).ToArray();
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-            {
-                _logger.LogWarning(ex, "Additional Material: cannot list {Directory}", directory);
-                return null;
-            }
-
-            if (listings is not null)
-            {
-                listings[directory] = names;
+                break;
             }
         }
 
-        var matches = _extensions
-            .Select(ext => names.FirstOrDefault(n => string.Equals(Path.GetFileName(n), baseName + ext, StringComparison.OrdinalIgnoreCase)))
-            .Where(n => n is not null)
-            .Cast<string>()
-            .ToList();
-        if (matches.Count == 0)
+        if (zip is null)
         {
             return null;
         }
 
-        return Validate(matches[0], libraries);
+        var candidate = Path.Combine(directory, zip.Name);
+        if (verify)
+        {
+            return Validate(candidate, libraries);
+        }
+
+        if (zip.IsLink || !InsideLibrary(Path.GetFullPath(candidate), libraries))
+        {
+            return null;
+        }
+
+        return new MaterialFile(Path.GetFullPath(candidate), zip.Name, zip.Size, Path.GetExtension(zip.Name).TrimStart('.').ToLowerInvariant());
     }
 
     private static bool IsEnabled(IEnumerable<Folder> libraries)
@@ -168,11 +172,7 @@ public sealed class MaterialLocator
         }
 
         var full = Path.GetFullPath(info.FullName);
-        var roots = libraries
-            .SelectMany(l => l.PhysicalLocations)
-            .Where(r => !string.IsNullOrEmpty(r))
-            .Select(r => Path.TrimEndingDirectorySeparator(Path.GetFullPath(r)) + Path.DirectorySeparatorChar);
-        if (!roots.Any(r => full.StartsWith(r, StringComparison.Ordinal)))
+        if (!InsideLibrary(full, libraries))
         {
             _logger.LogWarning("Additional Material: refusing {File}: outside the library's folders", full);
             return null;
@@ -180,5 +180,14 @@ public sealed class MaterialLocator
 
         var format = info.Extension.TrimStart('.').ToLowerInvariant();
         return new MaterialFile(full, info.Name, info.Length, format);
+    }
+
+    private static bool InsideLibrary(string full, IEnumerable<Folder> libraries)
+    {
+        return libraries
+            .SelectMany(l => l.PhysicalLocations)
+            .Where(r => !string.IsNullOrEmpty(r))
+            .Select(r => Path.TrimEndingDirectorySeparator(Path.GetFullPath(r)) + Path.DirectorySeparatorChar)
+            .Any(r => full.StartsWith(r, StringComparison.Ordinal));
     }
 }

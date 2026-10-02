@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0 (2026-10-02)
+
+- Icons appear at once. The plugin keeps an index of which folders hold material, built at
+  startup and after each library scan, instead of reading folders on demand (a sleeping disk took
+  seconds per course to answer). Entries older than 10 minutes are re-checked in the background
+  when used (`IndexRefreshMinutes`); no timer wakes the disks.
+- New scheduled task "Refresh additional material" to re-read the folders by hand.
+- Downloads still check the actual file.
+- The page script no longer waits for translations before drawing icons.
+
 ## 1.1.1 (2026-10-02)
 
 - Downloads get descriptive names: "Course - S10E01 - Lesson - Additional Material.zip".

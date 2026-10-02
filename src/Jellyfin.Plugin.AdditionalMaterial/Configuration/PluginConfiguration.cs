@@ -42,4 +42,10 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets a value indicating whether the icon appears on rows in list views (beside the favorite heart).</summary>
     public bool ShowInLists { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets how old, in minutes, a folder's entry in the index may be before a page that
+    /// uses it triggers a background re-check of that folder. The stored answer is still shown at once.
+    /// </summary>
+    public int IndexRefreshMinutes { get; set; } = 10;
 }

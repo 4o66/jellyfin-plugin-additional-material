@@ -110,10 +110,8 @@ public class AdditionalMaterialController : ControllerBase
         {
             return NotFound();
         }
-
-        var listings = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        var tree = new MaterialTree { Name = item.Name, Type = item.GetBaseItemKind().ToString(), CanDownload = CanDownload(user), Self = Row(item, _locator.Find(item, listings), "self") };
-        foreach (var (row, season) in Below(item, user, listings))
+        var tree = new MaterialTree { Name = item.Name, Type = item.GetBaseItemKind().ToString(), CanDownload = CanDownload(user), Self = Row(item, _locator.Find(item), "self") };
+        foreach (var (row, season) in Below(item, user))
         {
             var key = season?.Id ?? Guid.Empty;
             var group = tree.Groups.FirstOrDefault(g => g.SeasonId == key);
@@ -175,8 +173,6 @@ public class AdditionalMaterialController : ControllerBase
         {
             return result;
         }
-
-        var listings = new Dictionary<string, string[]>(StringComparer.Ordinal);
         foreach (var id in (request?.Ids ?? Array.Empty<Guid>()).Distinct().Take(200))
         {
             var key = user.Id.ToString("N", CultureInfo.InvariantCulture) + id.ToString("N", CultureInfo.InvariantCulture);
@@ -194,8 +190,8 @@ public class AdditionalMaterialController : ControllerBase
             MaterialStatus? status = null;
             if (item is not null)
             {
-                var own = _locator.Find(item, listings) is not null;
-                var below = Below(item, user, listings).Count();
+                var own = _locator.Find(item) is not null;
+                var below = Below(item, user).Count();
                 if (own || below > 0)
                 {
                     status = new MaterialStatus { Own = own, Below = below };
@@ -217,7 +213,7 @@ public class AdditionalMaterialController : ControllerBase
         return result;
     }
 
-    private IEnumerable<(MaterialRow Row, Season? Season)> Below(BaseItem item, User user, Dictionary<string, string[]> listings)
+    private IEnumerable<(MaterialRow Row, Season? Season)> Below(BaseItem item, User user)
     {
         var scope = Plugin.Instance?.Configuration.ShowOnParents ?? "all";
         BaseItemKind[] kinds;
@@ -243,7 +239,7 @@ public class AdditionalMaterialController : ControllerBase
         };
         foreach (var child in _libraryManager.GetItemList(query))
         {
-            var material = _locator.Find(child, listings);
+            var material = _locator.Find(child);
             if (material is null)
             {
                 continue;
@@ -286,7 +282,7 @@ public class AdditionalMaterialController : ControllerBase
         }
 
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
-        if (item is null || _locator.Find(item) is null)
+        if (item is null || _locator.FindVerified(item) is null)
         {
             return NotFound();
         }
@@ -320,7 +316,7 @@ public class AdditionalMaterialController : ControllerBase
         }
 
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
-        var material = item is null ? null : _locator.Find(item);
+        var material = item is null ? null : _locator.FindVerified(item);
         if (material is null)
         {
             return NotFound();

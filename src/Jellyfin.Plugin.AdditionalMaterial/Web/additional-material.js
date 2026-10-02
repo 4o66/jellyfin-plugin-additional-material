@@ -73,9 +73,12 @@
     function load(client) {
         if (!ready) {
             var lang = document.documentElement.getAttribute('lang') || navigator.language || 'en';
+            // Settings decide where icons go, so wait for them (one small request). Translations
+            // only change wording: give them a moment, then draw in English rather than wait.
+            var translations = fetch(client.getUrl('AdditionalMaterial/web/strings', { lang: lang })).then(function (r) { return r.ok ? r.json() : {}; })
+                .then(function (loaded) { Object.assign(strings, loaded); }).catch(function () { /* built-in English */ });
             ready = Promise.all([
-                fetch(client.getUrl('AdditionalMaterial/web/strings', { lang: lang })).then(function (r) { return r.ok ? r.json() : {}; })
-                    .then(function (loaded) { Object.assign(strings, loaded); }).catch(function () { /* built-in English */ }),
+                Promise.race([translations, new Promise(function (resolve) { window.setTimeout(resolve, 300); })]),
                 getJson(client, 'AdditionalMaterial/web/settings').then(function (s) { Object.assign(settings, s); }).catch(function () { /* defaults */ })
             ]);
         }

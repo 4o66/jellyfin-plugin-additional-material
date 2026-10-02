@@ -54,8 +54,8 @@ mk "$WORK/media/other/Course B" additional-material.zip      # library not enabl
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.1.1.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.1.1.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.2.0.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.2.0.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8096" \
@@ -176,6 +176,33 @@ check "garbage token: 404"  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/Add
 # Revoke downloads after the link was issued: the link must stop working.
 curl "${A[@]}" "$BASE/Users/$DL_ID" | jq '.Policy | .EnableContentDownloading=false' | curl "${A[@]}" -X POST "$BASE/Users/$DL_ID/Policy" -d @- >/dev/null
 check "revoked permission: existing link dies" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN")" 404
+
+# ---- folder index -----------------------------------------------------------------
+# Pages are answered from the plugin's index; only downloads look at the disk.
+refresh() {   # run "Refresh additional material" and wait for it
+  local id; id=$(curl "${A[@]}" "$BASE/ScheduledTasks" | jq -r '.[] | select(.Key=="Jellyfin.Plugin.AdditionalMaterial.IndexRefresh") | .Id')
+  curl "${A[@]}" -X POST "$BASE/ScheduledTasks/Running/$id" >/dev/null
+  for _ in $(seq 30); do sleep 1; [[ $(curl "${A[@]}" "$BASE/ScheduledTasks/$id" | jq -r .State) == Idle ]] && break; done
+  echo "$id"
+}
+logs=$(docker logs "$NAME" 2>&1)   # not piped into grep -q: with pipefail, SIGPIPE fails the pipeline
+[[ $logs == *"Additional Material: indexed"* ]] && ok "index built at startup" || bad "index built at startup"
+check "refresh task listed" "$(curl "${A[@]}" "$BASE/ScheduledTasks" | jq -r '.[] | select(.Key=="Jellyfin.Plugin.AdditionalMaterial.IndexRefresh") | .Name')" "Refresh additional material"
+L2="$T/Season 1/S01E02 - Lesson Two.material.zip"; L1="$T/Season 1/S01E01 - Lesson One.material.zip"
+cp "$L1" "$L2"
+check "new zip: not seen before a refresh"  "$(info "$ADMIN" "$E2" | jq -r '.Available')" false
+refresh >/dev/null
+check "new zip: seen after the refresh task" "$(info "$ADMIN" "$E2" | jq -r '.Available')" true
+mv "$L1" "$WORK/held.zip"
+check "deleted zip: page still shows it"    "$(info "$ADMIN" "$E1" | jq -r '.Available')" true
+check "deleted zip: link refused (disk checked)" "$(as "$ADMIN" -o /dev/null -w '%{http_code}' -X POST "$BASE/AdditionalMaterial/Items/$E1/Link")" 404
+cfg '.IndexRefreshMinutes=0'
+info "$ADMIN" "$E1" >/dev/null; sleep 2
+check "stale entry re-checked in the background" "$(info "$ADMIN" "$E1" | jq -r '.Available')" false
+# Put the media back as it was, for the browser test.
+mv "$WORK/held.zip" "$L1"; rm "$L2"
+cfg '.IndexRefreshMinutes=10'; refresh >/dev/null
+check "index restored" "$(info "$ADMIN" "$E1" | jq -r '.Available') $(info "$ADMIN" "$E2" | jq -r '.Available')" "true false"
 
 # ---- web client ----------------------------------------------------------------
 check "script served" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/web/additional-material.js")" 200

@@ -15,8 +15,12 @@ that Jellyfin otherwise ignores.
 
 ## How it finds material
 
-The plugin looks for a `.zip` with a fixed name. Nothing is indexed and nothing is written to
-Jellyfin's database: it checks the disk when an item page asks.
+The plugin looks for a `.zip` with a fixed name. It keeps a small in-memory index of which folders
+hold zips, built at startup and after every library scan, so pages and icons never wait for a
+sleeping disk to spin up. Nothing is written to Jellyfin's database. A zip added between scans
+shows up when its folder's entry is next re-checked (in the background, when a page uses an entry
+older than 10 minutes) or at once if you run **Scheduled Tasks → Refresh additional material**.
+Downloads always check the file itself.
 
 | Where the zip is | Button appears on |
 |---|---|
