@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0 (unreleased)
+
+- Course and section pages list the material below them, grouped by section, with Go to lesson
+  and Download. Grid cards and list rows show the icon (each can be turned off).
+- New icon (design A6), two-color by default with a selectable accent; dashboard sidebar entry.
+- Text is translatable (Web/i18n, tools/i18n).
+- The web script's address changes with every build, so browsers never keep a stale copy.
+
 ## 1.0.0 (unreleased)
 
 First version.

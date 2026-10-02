@@ -54,8 +54,8 @@ mk "$WORK/media/other/Course B" additional-material.zip      # library not enabl
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.0.0.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.0.0.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.1.0.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.1.0.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8096" \

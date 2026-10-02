@@ -96,7 +96,10 @@ public static class IndexHtmlPatch
             return null;
         }
 
-        var version = typeof(IndexHtmlPatch).Assembly.GetName().Version?.ToString() ?? "0";
+        // The build's module ID changes with every build, so browsers never keep an old script
+        // when the plugin is updated (the version number alone may stay the same between builds).
+        var assembly = typeof(IndexHtmlPatch).Assembly;
+        var version = (assembly.GetName().Version?.ToString() ?? "0") + "-" + assembly.ManifestModule.ModuleVersionId.ToString("N")[..8];
         // Relative to /web/, so it works under any base URL.
         var tag = $"<script {Marker} src=\"../AdditionalMaterial/web/additional-material.js?v={version}\" defer></script>";
         return html.Insert(index, tag);
