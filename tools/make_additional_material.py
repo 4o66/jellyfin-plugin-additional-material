@@ -15,8 +15,11 @@ Which lesson a file belongs to, in order:
   2. it starts with the same lesson number as exactly one video in the same folder
      ("4 - Study Plan.pdf" belongs to "4 - Welcome.mp4");
   3. it sits in attached_files/<lesson>/, where <lesson> matches a video in the parent folder.
-Files matching no lesson go to their section; files in folders with no videos (so no Jellyfin
-item to show a button on) go to the course.
+Files matching no lesson go to their section.
+
+If a course has subfolders that hold material but no videos (Jellyfin shows no page for them),
+the whole course is packaged as one additional-material.zip instead, folders kept inside, so the
+material is not split between the course page and section pages (--package, default auto).
 
 Executable content (.exe, .dll, scripts, and archives that contain them) is left out by default
 and replaced in the archive by "<name>.REMOVED.txt", a note saying why, with the file's SHA-256 so
@@ -239,6 +242,7 @@ class Planner:
         self.blocked: dict[Path, str] = {}
         self.scans: dict[Path, dict] = {}
         self.allowed_clean: list[tuple[str, str]] = []
+        self.packaged: dict[Path, list[str]] = {}
         self.seven = find_7z()
         key = args.virustotal_key or os.environ.get("VT_API_KEY")
         self.vt = VirusTotal(key, args.virustotal_upload, args.virustotal_rate,
@@ -311,8 +315,15 @@ class Planner:
                     continue
                 material.append(path)
 
-        sections = [d for d in subdirs(course) if any(v.is_relative_to(d) for vids in videos_by_dir.values() for v in vids)]
-        levels = set(self.args.levels)
+        all_videos = [v for vids in videos_by_dir.values() for v in vids]
+        sections = [d for d in subdirs(course) if any(v.is_relative_to(d) for v in all_videos)]
+        # Subfolders that hold material but no videos: Jellyfin shows no page for them, so their
+        # files could only ride on the course page while the rest sat in section and lesson zips.
+        # When a course has any, it is packaged as one archive (--package auto, the default).
+        video_less = sorted({d for d in subdirs(course) if d not in sections and any(m.is_relative_to(d) for m in material)})
+        single = self.args.package == "always" or (self.args.package == "auto" and bool(video_less))
+        self.packaged[course] = [d.name for d in video_less] if single else []
+        levels = {"course"} if single else set(self.args.levels)
         groups: dict[Path, Group] = {}
 
         def add(level: str, archive: Path, base: Path, path: Path) -> None:
@@ -468,6 +479,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--only", action="append", metavar="NAME", help="only these course folders (repeatable, globs allowed)")
     p.add_argument("--levels", default="lesson,section,course",
                    help="comma-separated levels to build (default all). Files of a disabled level roll up to the next")
+    p.add_argument("--package", choices=["auto", "always", "never"], default="auto",
+                   help="one archive for the whole course: when it has subfolders with material but no videos (auto, default), "
+                        "for every course (always), or never")
     p.add_argument("--match", choices=["number", "name"], default="number",
                    help="files join a lesson by same name or lesson number (default), or by same name only")
     p.add_argument("--exclude", action="append", metavar="GLOB", help="skip files matching GLOB (name or path within the course); repeatable")
@@ -519,7 +533,11 @@ def main(argv: list[str] | None = None) -> int:
     for course in courses:
         say(f"== {course.name}")
         groups = planner.plan_course(course)
-        entry = {"course": str(course), "archives": []}
+        why = planner.packaged.get(course)
+        if why is not None and (why or args.package == "always"):
+            shown = ", ".join(why[:3]) + (f" and {len(why) - 3} more" if len(why) > 3 else "")
+            say("   one archive for the whole course" + (f": no videos in {shown}" if why else " (--package always)"))
+        entry = {"course": str(course), "packaged_as_one": bool(why) or args.package == "always", "archives": []}
         for g in groups:
             status, detail = write_group(g, args)
             counts[status] = counts.get(status, 0) + 1

@@ -96,8 +96,13 @@ of your videos:
    exactly one video in that folder (`4 - Study Plan.pdf` goes with `4 - Welcome.mp4`), or one
    inside `attached_files/<lesson>/`.
 2. **Section:** anything else in a season folder.
-3. **Course:** anything in folders with no videos (Jellyfin has no page there to show a button
-   on), and files in the course folder itself.
+3. **Course:** files in the course folder itself.
+
+**One archive for the whole course** when it has subfolders that hold material but no videos.
+Jellyfin shows no page for those folders, so instead of splitting the course between section
+zips and a course zip, everything goes into a single `additional-material.zip` on the course
+page, with the folders kept inside. `--package always` does this for every course, and
+`--package never` keeps the split.
 
 Videos, subtitles, `.nfo` files, Jellyfin artwork, dot-folders such as `.chapters` and `.url`
 shortcuts are always left out. A lone `.zip` that is all of a lesson's material is reused as is

@@ -86,7 +86,7 @@ class CourseLayout(unittest.TestCase):
         self.assertTrue(all(a["status"] == "would write" for c in report["courses"] for a in c["archives"]))
 
     def test_grouping(self):
-        code, out, report = run(str(self.course), "--apply")
+        code, out, report = run(str(self.course), "--apply", "--package", "never")
         self.assertEqual(code, 0, out)
         s = self.section
         self.assertEqual(names(s / "1 - Welcome.material.zip"), ["1 - Welcome.pdf"])
@@ -100,7 +100,7 @@ class CourseLayout(unittest.TestCase):
             self.assertFalse(any(f in n for z in self.course.rglob("*.zip") for n in names(z) if z.name != "3 - Lab Files.zip"))
 
     def test_executables_become_notes(self):
-        run(str(self.course), "--apply")
+        run(str(self.course), "--apply", "--package", "never")
         z4 = self.section / "4 - Tooling.material.zip"
         self.assertEqual(names(z4), ["4 - Tooling Setup.exe.REMOVED.txt"])
         with zipfile.ZipFile(z4) as z:
@@ -113,13 +113,13 @@ class CourseLayout(unittest.TestCase):
             self.assertIn("bin/evil.exe", z.read("5 - Pack Extras.zip.REMOVED.txt").decode())
 
     def test_allow_executables(self):
-        run(str(self.course), "--apply", "--allow-executables")
+        run(str(self.course), "--apply", "--package", "never", "--allow-executables")
         self.assertEqual(names(self.section / "4 - Tooling.material.zip"), ["4 - Tooling Setup.exe"])
 
     def test_lone_zip_is_reused_not_rezipped(self):
         touch(self.section / "7 - Solo.mp4")
         src = make_zip(self.section / "7 - Solo Labs.zip", {"a.txt": b"a"})
-        run(str(self.course), "--apply")
+        run(str(self.course), "--apply", "--package", "never")
         out = self.section / "7 - Solo.material.zip"
         self.assertEqual(out.read_bytes(), src.read_bytes())
         self.assertEqual(out.stat().st_ino, src.stat().st_ino)  # hard link: no extra space
@@ -132,24 +132,53 @@ class CourseLayout(unittest.TestCase):
         self.assertIn("1 - Intro/2 - Reading Notes.html", got)
 
     def test_match_name_only(self):
-        run(str(self.course), "--apply", "--match", "name")
+        run(str(self.course), "--apply", "--package", "never", "--match", "name")
         self.assertTrue((self.section / "1 - Welcome.material.zip").exists())
         self.assertIn("3 - Lab Files.zip", names(self.section / "additional-material.zip"))
 
     def test_existing_archives_kept_then_updated(self):
-        run(str(self.course), "--apply")
+        run(str(self.course), "--apply", "--package", "never")
         target = self.section / "1 - Welcome.material.zip"
         first = target.stat().st_mtime_ns
-        _, _, report = run(str(self.course), "--apply")
+        _, _, report = run(str(self.course), "--apply", "--package", "never")
         self.assertEqual(target.stat().st_mtime_ns, first)
         self.assertTrue(any(a["status"] == "kept" for c in report["courses"] for a in c["archives"]))
         future = first / 1e9 + 100
         os.utime(self.section / "1 - Welcome.pdf", (future, future))
-        run(str(self.course), "--apply", "--update")
+        run(str(self.course), "--apply", "--package", "never", "--update")
         self.assertNotEqual(target.stat().st_mtime_ns, first)
 
+    def test_video_less_folder_packages_whole_course(self):
+        code, out, report = run(str(self.course), "--apply")
+        self.assertEqual(code, 0, out)
+        self.assertIn("one archive for the whole course: no videos in 2 - Extras", out)
+        self.assertFalse(list(self.course.rglob("*.material.zip")))
+        self.assertFalse((self.section / "additional-material.zip").exists())
+        got = names(self.course / "additional-material.zip")
+        for expected in ("1 - Intro/1 - Welcome.pdf", "1 - Intro/2 - Reading Notes.html", "1 - Intro/3 - Lab Files.zip",
+                         "1 - Intro/attached_files/3 - Lab/diagram.png", "1 - Intro/4 - Tooling Setup.exe.REMOVED.txt",
+                         "2 - Extras/Cheat Sheet.pdf"):
+            self.assertIn(expected, got)
+        self.assertTrue(report["courses"][0]["packaged_as_one"])
+
+    def test_package_always_and_auto_without_video_less(self):
+        (self.course / "2 - Extras" / "Cheat Sheet.pdf").unlink()
+        (self.course / "2 - Extras").rmdir()
+        _, out, _ = run(str(self.course), "--apply")                 # no video-less folder: split as usual
+        self.assertTrue((self.section / "1 - Welcome.material.zip").exists())
+        self.assertNotIn("one archive", out)
+        _, out, _ = run(str(self.course), "--apply", "--force", "--package", "always")
+        self.assertIn("one archive for the whole course (--package always)", out)
+        self.assertIn("1 - Intro/1 - Welcome.pdf", names(self.course / "additional-material.zip"))
+
+    def test_empty_video_less_folder_does_not_trigger(self):
+        (self.course / "2 - Extras" / "Cheat Sheet.pdf").unlink()
+        _, out, _ = run(str(self.course), "--apply")
+        self.assertNotIn("one archive", out)
+        self.assertTrue((self.section / "1 - Welcome.material.zip").exists())
+
     def test_exclude_option(self):
-        run(str(self.course), "--apply", "--exclude", "*.html")
+        run(str(self.course), "--apply", "--package", "never", "--exclude", "*.html")
         self.assertFalse((self.section / "additional-material.zip").exists())
 
 
