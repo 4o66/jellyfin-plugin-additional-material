@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1 (2026-10-02)
+
+- Security: material reached through a symbolic link or junction to a folder (below the library's
+  own folder) is now refused, as the README always said. Before, a linked folder pointing outside
+  the library had its zips served. Exploiting it needed write access to the library. Found in
+  cross-platform testing (#3).
+
 ## 1.2.0 (2026-10-02)
 
 - Icons appear at once. The plugin keeps an index of which folders hold material, built at

@@ -36,13 +36,15 @@ mkdir -p "$WORK"/{config/plugins,cache,media/training,media/other}
 
 # ---- sample media -----------------------------------------------------------
 T="$WORK/media/training/Course A"
-mkdir -p "$T/Season 1" "$T/Season 2" "$WORK/media/other/Course B/Season 1"
+mkdir -p "$T/Season 1" "$T/Season 2" "$WORK/media/other/Course B/Season 1" "$WORK/media/outside/Season 3"
 docker run --rm --entrypoint /usr/lib/jellyfin-ffmpeg/ffmpeg -v "$WORK/media:/m" "$IMAGE" \
   -loglevel error -f lavfi -i testsrc=duration=3:size=320x240:rate=10 -c:v libx264 -pix_fmt yuv420p /m/sample.mp4
 for f in "Season 1/S01E01 - Lesson One" "Season 1/S01E02 - Lesson Two" "Season 2/S02E01 - Sneaky"; do
   cp "$WORK/media/sample.mp4" "$T/$f.mp4"
 done
 cp "$WORK/media/sample.mp4" "$WORK/media/other/Course B/Season 1/S01E01 - Other.mp4"
+cp "$WORK/media/sample.mp4" "$WORK/media/outside/Season 3/S03E01 - Linked.mp4"
+ln -s "../../outside/Season 3" "$T/Season 3"                      # folder link out of the library
 rm "$WORK/media/sample.mp4"
 mk() { local dir=$1 name=$2; echo "material for $name" > "$WORK/notes.txt"; (cd "$WORK" && 7z a -bso0 -bsp0 "$dir/$name" notes.txt); }
 mk "$T" additional-material.zip                              # course
@@ -51,11 +53,12 @@ mk "$T/Season 1" "S01E01 - Lesson One.material.zip"          # lesson
 mk "$T/Season 1" "S01E02 - Lesson Two.material.7z"           # .7z is not recognized in this version
 ln -s /etc/hostname "$T/Season 2/S02E01 - Sneaky.material.zip"  # link escaping the library: refused
 mk "$WORK/media/other/Course B" additional-material.zip      # library not enabled: ignored
+mk "$WORK/media/outside/Season 3" "S03E01 - Linked.material.zip"  # reached only through the folder link: refused
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.2.0.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.2.0.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.2.1.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.2.1.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8096" \
@@ -85,9 +88,9 @@ done
 curl "${A[@]}" -X POST "$BASE/Library/Refresh" >/dev/null
 for _ in $(seq 1 60); do
   n=$(curl "${A[@]}" "$BASE/Items?Recursive=true&IncludeItemTypes=Episode" | jq -r '.TotalRecordCount // 0')
-  [[ $n -ge 4 ]] && break; sleep 2
+  [[ $n -ge 5 ]] && break; sleep 2
 done
-check "library scanned (episodes)" "$n" 4
+check "library scanned (episodes)" "$n" 5
 
 lib_id() { curl "${A[@]}" "$BASE/Library/VirtualFolders" | jq -r --arg n "$1" '.[] | select(.Name==$n) | .ItemId'; }
 TRAINING=$(lib_id training); OTHER=$(lib_id other)
@@ -113,7 +116,8 @@ SEASON1=$(item Season "/media/training/Course A/Season 1")
 E1=$(item Episode "/media/training/Course A/Season 1/S01E01 - Lesson One.mp4")
 E2=$(item Episode "/media/training/Course A/Season 1/S01E02 - Lesson Two.mp4")
 E3=$(item Episode "/media/training/Course A/Season 2/S02E01 - Sneaky.mp4")
-for v in SERIES SERIESB SEASON1 E1 E2 E3; do [[ -n ${!v} ]] || bad "test item $v not found"; done
+E4=$(item Episode "/media/training/Course A/Season 3/S03E01 - Linked.mp4")
+for v in SERIES SERIESB SEASON1 E1 E2 E3 E4; do [[ -n ${!v} ]] || bad "test item $v not found"; done
 info() { as "$1" "$BASE/AdditionalMaterial/Items/$2"; }
 
 # ---- lookups -------------------------------------------------------------------
@@ -122,6 +126,8 @@ check "section archive found"               "$(info "$ADMIN" "$SEASON1" | jq -r 
 check "lesson archive found"                "$(info "$ADMIN" "$E1" | jq -r '.FileName')" "S01E01 - Lesson One.material.zip"
 check ".7z is ignored"                      "$(info "$ADMIN" "$E2" | jq -r '.Available')" false
 check "link escaping library refused"       "$(info "$ADMIN" "$E3" | jq -r '.Available')" false
+check "zip under a linked folder refused"     "$(info "$ADMIN" "$E4" | jq -r '.Available')" false
+check "zip under a linked folder: no link"    "$(as "$ADMIN" -o /dev/null -w '%{http_code}' -X POST "$BASE/AdditionalMaterial/Items/$E4/Link")" 404
 check "library not enabled: ignored"        "$(info "$ADMIN" "$SERIESB" | jq -r '.Available')" false
 check "style defaults to two colors"     "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle + " " + .AccentColor')" "color #00A4DC"
 check "display settings defaults"        "$(as "$ADMIN" "$BASE/AdditionalMaterial/web/settings" | jq -c '[.ButtonStyle,.ShowOnParents,.ShowOnCards,.ShowInLists]')" '["color","all",true,true]'

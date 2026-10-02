@@ -28,6 +28,7 @@ public sealed class MaterialIndex
 {
     private readonly ConcurrentDictionary<string, (IReadOnlyDictionary<string, IndexedZip> Zips, DateTimeOffset Listed)> _folders = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _refreshing = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, bool> _linkedFolders = new(StringComparer.Ordinal);
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<MaterialIndex> _logger;
     private int _rebuilding;
@@ -76,6 +77,27 @@ public sealed class MaterialIndex
         return List(directory);
     }
 
+    /// <summary>Reads from the disk whether <paramref name="directory"/> is a symbolic link or junction.</summary>
+    /// <param name="directory">An absolute folder path.</param>
+    /// <returns><c>true</c> if it is a link, or cannot be read.</returns>
+    public static bool ReadIsLinkedFolder(string directory)
+    {
+        try
+        {
+            var info = new DirectoryInfo(directory);
+            return info.LinkTarget is not null || (info.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>Whether <paramref name="directory"/> is a link, remembered from when it was last read.</summary>
+    /// <param name="directory">An absolute folder path.</param>
+    /// <returns><c>true</c> if it is a link.</returns>
+    public bool IsLinkedFolder(string directory) => _linkedFolders.GetOrAdd(directory, ReadIsLinkedFolder);
+
     /// <summary>Lists every folder of the enabled libraries. Runs at startup and after library scans.</summary>
     /// <param name="progress">Progress, 0–100.</param>
     /// <param name="cancellationToken">Cancellation.</param>
@@ -118,6 +140,8 @@ public sealed class MaterialIndex
             {
                 _folders.TryRemove(key, out _);
             }
+
+            _linkedFolders.Clear();
 
             _logger.LogInformation("Additional Material: indexed {Count} folders in {Roots} library location(s)", seen.Count, roots.Count);
         }
@@ -179,6 +203,7 @@ public sealed class MaterialIndex
             return zips;
         }
 
+        _linkedFolders[directory] = ReadIsLinkedFolder(directory);
         _folders[directory] = (zips, DateTimeOffset.UtcNow);
         return zips;
     }
