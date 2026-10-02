@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.0 (2026-10-02)
+
+- **Contents view.** A lesson's button now opens a file tree of its archive, with a Download
+  button on every file and **Download all (.zip)** below. Course and section pages keep their
+  direct download and gain a **Contents** button listing every archive below them; each one
+  expands to its files.
+- Zips inside the material (lab packs and the like) are listed and their files downloadable one
+  by one (setting: "List the files inside zips that are inside the material", on by default).
+- Files the helper script replaced by a note show under their own name, marked as removed.
+- Settings: **Re-read folders** re-reads every enabled library's folders now, with progress and
+  the result.
+- The listing closes when you leave the page.
+- Files are listed from the zip's own directory (nothing unpacked) and served straight out of
+  it, as attachments, with the same signed links and permission checks as whole archives.
+
 ## 1.2.3 (2026-10-02)
 
 - Fixed: grid and list icons could vanish until a reload. Jellyfin re-builds a card's indicator

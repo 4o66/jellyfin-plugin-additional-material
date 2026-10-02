@@ -14,6 +14,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddSingleton<MaterialIndex>();
         serviceCollection.AddSingleton<MaterialLocator>();
+        serviceCollection.AddSingleton<ArchiveContents>();
         serviceCollection.AddSingleton<LinkSigner>();
         serviceCollection.AddTransient<IStartupFilter, FreshIndexStartupFilter>();
     }

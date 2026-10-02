@@ -73,7 +73,9 @@ with sync_playwright() as p:
 
     ctx, page = session(browser, admin_token, admin_id)
     open_details(page, series)
-    button = page.locator(".itemDetailPage:not(.hide) .additionalMaterialButton")
+    MAIN = ".itemDetailPage:not(.hide) .additionalMaterialButton:not(.additionalMaterialContents)"
+    CONTENTS = ".itemDetailPage:not(.hide) .additionalMaterialContents"
+    button = page.locator(MAIN)
     try:
         button.wait_for(timeout=20000)
         check("button appears on a course with material", True)
@@ -82,35 +84,74 @@ with sync_playwright() as p:
     page.screenshot(path="/t/screenshot-course.png")
     if button.count():
         check("button is enabled for a user with download permission", button.is_enabled())
-        check("course button counts all archives below", "3 archives" in (button.get_attribute("title") or ""), button.get_attribute("title"))
-        button.click()
+        check("course button names its own archive", "ZIP" in (button.get_attribute("title") or ""), button.get_attribute("title"))
+        with page.expect_download(timeout=30000) as d:
+            button.click()
+        check("course button downloads the course archive directly", hashlib.sha256(open(d.value.path(), "rb").read()).hexdigest() == expected)
+        cb = page.locator(CONTENTS)
+        check("course has a Contents button counting all archives", cb.count() == 1 and "3 archives" in (cb.get_attribute("title") or ""),
+              cb.get_attribute("title") if cb.count() else "missing")
+        cb.click()
         dialog = page.locator(".am-dialog")
         try:
             dialog.wait_for(timeout=10000)
-            check("course button opens the listing", True)
+            check("Contents button opens the listing", True)
         except Exception as e:  # noqa: BLE001
-            check("course button opens the listing", False, str(e)[:120])
-        page.screenshot(path="/t/screenshot-listing.png")
+            check("Contents button opens the listing", False, str(e)[:120])
         check("listing has course, section and lesson rows", dialog.locator(".am-row").count() == 3, str(dialog.locator(".am-row").count()))
         with page.expect_download(timeout=30000) as d:
             dialog.locator(".am-row").nth(0).locator(".am-download").click()
         check("listing downloads the course archive", hashlib.sha256(open(d.value.path(), "rb").read()).hexdigest() == expected)
-        lesson_row = dialog.locator(".am-row").nth(2)   # names may come from online metadata; the lesson row is last
+        lesson_block = dialog.locator(".am-archive").nth(2)   # names may come from online metadata; the lesson is last
+        lesson_block.locator(".am-contents-toggle").click()
+        try:
+            lesson_block.locator(".am-file").first.wait_for(timeout=10000)
+            names = lesson_block.locator(".am-file .am-name").all_inner_texts()
+            check("expanding a lesson shows its files", any("notes.txt" in n for n in names) and any("intro.txt" in n for n in names), str(names))
+        except Exception as e:  # noqa: BLE001
+            check("expanding a lesson shows its files", False, str(e)[:120])
+        page.screenshot(path="/t/screenshot-contents.png")
+        check("folders are shown as folders", lesson_block.locator(".am-folder .am-name", has_text="slides/").count() == 1)
+        removed = lesson_block.locator(".am-removed")
+        check("a removed file shows its name and that it was replaced", removed.count() == 1 and "tool.exe" in removed.inner_text(), removed.inner_text() if removed.count() else "")
         with page.expect_download(timeout=30000) as d:
-            lesson_row.locator(".am-download").click()
+            lesson_block.locator(".am-file", has_text="notes.txt").locator(".am-file-download").click()
+        check("one file downloads on its own", open(d.value.path()).read().strip() == "material for S01E01" and d.value.suggested_filename == "notes.txt",
+              d.value.suggested_filename)
+        lab = lesson_block.locator(".am-file", has_text="labs.zip")
+        lab.locator(".am-caret").click()
+        inner = lesson_block.locator(".am-file", has_text="lab1.txt")
+        try:
+            inner.wait_for(timeout=5000)
+            with page.expect_download(timeout=30000) as d:
+                inner.locator(".am-file-download").click()
+            check("a file inside a nested zip downloads", open(d.value.path()).read().strip() == "lab one")
+        except Exception as e:  # noqa: BLE001
+            check("a file inside a nested zip downloads", False, str(e)[:120])
+        with page.expect_download(timeout=30000) as d:
+            dialog.locator(".am-row").nth(2).locator(".am-download").click()
         check("listing downloads a lesson archive", hashlib.sha256(open(d.value.path(), "rb").read()).hexdigest() == expected_lesson)
-        lesson_row.locator(".am-goto").click()
+        dialog.locator(".am-row").nth(2).locator(".am-goto").click()
         page.wait_for_timeout(1500)
         check("Go to lesson opens the lesson page", lesson1 in page.url.replace("-", ""), page.url)
         check("listing closes on Go to lesson", page.locator(".am-dialog").count() == 0)
-        page.wait_for_selector(".itemDetailPage:not(.hide) .additionalMaterialButton", timeout=20000)
-        lb = page.locator(".itemDetailPage:not(.hide) .additionalMaterialButton")
+        page.wait_for_selector(MAIN, timeout=20000)
+        lb = page.locator(MAIN)
         check("lesson button names format and size", "ZIP" in (lb.get_attribute("title") or ""), lb.get_attribute("title"))
+        check("lesson has no separate Contents button", page.locator(CONTENTS).count() == 0)
+        lb.click()
+        try:
+            page.locator(".am-dialog .am-single .am-file").first.wait_for(timeout=10000)
+            check("lesson button opens its contents", True)
+        except Exception as e:  # noqa: BLE001
+            check("lesson button opens its contents", False, str(e)[:120])
+        page.screenshot(path="/t/screenshot-lesson-contents.png")
         with page.expect_download(timeout=30000) as d:
-            lb.click()
-        check("lesson button downloads directly", hashlib.sha256(open(d.value.path(), "rb").read()).hexdigest() == expected_lesson)
+            page.locator(".am-download-all").click()
+        check("Download all downloads the lesson archive", hashlib.sha256(open(d.value.path(), "rb").read()).hexdigest() == expected_lesson)
+        page.keyboard.press("Escape")
         open_details(page, series)
-        page.wait_for_selector(".itemDetailPage:not(.hide) .additionalMaterialButton", timeout=20000)
+        page.wait_for_selector(MAIN, timeout=20000)
     if button.count():
         color = page.evaluate("() => getComputedStyle(document.querySelector('.additionalMaterialIcon')).getPropertyValue('--am-accent').trim()")
         check("two-color style puts the accent on the badge", color.lower() == "#db781b", color)
@@ -120,7 +161,8 @@ with sync_playwright() as p:
     check("no button on an item without material", page.locator(".itemDetailPage:not(.hide) .additionalMaterialButton").count() == 0)
     open_details(page, series)
     page.wait_for_timeout(3000)
-    check("exactly one button after returning to the course", page.locator(".additionalMaterialButton").count() == 1,
+    check("one download and one Contents button after returning to the course",
+          page.locator(".additionalMaterialButton:not(.additionalMaterialContents)").count() == 1 and page.locator(".additionalMaterialContents").count() == 1,
           str(page.locator(".additionalMaterialButton").count()))
     # Grid: the training library's series cards
     page.goto(f"{BASE}/web/#/tv?topParentId={training}&serverId={server['Id']}")
@@ -233,6 +275,10 @@ with sync_playwright() as p:
         page.locator("#amPreview svg").wait_for(timeout=30000)
         check("settings page shows the icon preview", True)
         check("settings page lists the libraries", page.locator("#amLibraries input").count() == 2)
+        page.locator("#amReread").click()
+        page.wait_for_function("() => /Indexed \\d+ folders, \\d+ zips/.test(document.querySelector('#amIndexStatus').textContent)", timeout=30000)
+        check("Re-read folders runs and reports the result", True)
+        check("settings page has the nested-zip setting, on", page.locator("#amNested").is_checked())
     except Exception as e:  # noqa: BLE001
         check("settings page shows the icon preview", False, str(e)[:120])
     page.screenshot(path="/t/screenshot-settings.png", full_page=True)
@@ -240,10 +286,10 @@ with sync_playwright() as p:
 
     ctx, page = session(browser, reader_token, reader_id)
     open_details(page, series)
-    button = page.locator(".itemDetailPage:not(.hide) .additionalMaterialButton")
     try:
-        button.wait_for(timeout=20000)
-        button.click()
+        page.locator(MAIN).wait_for(timeout=20000)
+        check("no download permission: course download button is disabled", not page.locator(MAIN).is_enabled())
+        page.locator(CONTENTS).click()
         page.locator(".am-dialog").wait_for(timeout=10000)
         disabled = page.evaluate("() => [...document.querySelectorAll('.am-download')].every(b => b.disabled)")
         check("no download permission: listing's Download buttons are disabled", disabled)
@@ -252,12 +298,17 @@ with sync_playwright() as p:
         check("no download permission: listing's Download buttons are disabled", False, str(e)[:120])
     page.screenshot(path="/t/screenshot-no-permission.png")
     open_details(page, lesson1)
+    check("leaving the page closes the dialog", page.locator(".am-dialog").count() == 0)
     try:
-        lb = page.locator(".itemDetailPage:not(.hide) .additionalMaterialButton")
+        lb = page.locator(MAIN)
         lb.wait_for(timeout=20000)
-        check("no download permission: lesson button is disabled", not lb.is_enabled())
+        lb.click()
+        page.locator(".am-dialog .am-single .am-file").first.wait_for(timeout=10000)
+        check("no download permission: contents still shown", True)
+        disabled = page.evaluate("() => [...document.querySelectorAll('.am-file-download, .am-download-all')].every(b => b.disabled)")
+        check("no download permission: file and Download all buttons are disabled", disabled)
     except Exception as e:  # noqa: BLE001
-        check("no download permission: lesson button is disabled", False, str(e)[:120])
+        check("no download permission: contents still shown", False, str(e)[:120])
     ctx.close()
     browser.close()
 

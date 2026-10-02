@@ -33,19 +33,80 @@ public class AdditionalMaterialController : ControllerBase
     private readonly IUserManager _userManager;
     private readonly MaterialLocator _locator;
     private readonly LinkSigner _signer;
+    private readonly ArchiveContents _contents;
+    private readonly MaterialIndex _index;
 
     /// <summary>Initializes a new instance of the <see cref="AdditionalMaterialController"/> class.</summary>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="userManager">User manager.</param>
     /// <param name="locator">Archive locator.</param>
     /// <param name="signer">Download token signer.</param>
-    public AdditionalMaterialController(ILibraryManager libraryManager, IUserManager userManager, MaterialLocator locator, LinkSigner signer)
+    /// <param name="contents">Archive listings.</param>
+    /// <param name="index">The folder index.</param>
+    public AdditionalMaterialController(ILibraryManager libraryManager, IUserManager userManager, MaterialLocator locator, LinkSigner signer, ArchiveContents contents, MaterialIndex index)
     {
         _libraryManager = libraryManager;
         _userManager = userManager;
         _locator = locator;
         _signer = signer;
+        _contents = contents;
+        _index = index;
     }
+
+    /// <summary>What is inside an item's own archive, for the Contents view.</summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <returns>The file listing.</returns>
+    [HttpGet("Items/{itemId}/Contents")]
+    [Authorize]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<MaterialContents> GetContents([FromRoute] Guid itemId)
+    {
+        var user = CurrentUser();
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+        var material = item is null ? null : _locator.FindVerified(item);
+        var listing = material is null ? null : _contents.List(material.FullPath);
+        if (material is null || listing is null)
+        {
+            return NotFound();
+        }
+
+        return new MaterialContents
+        {
+            FileName = material.FileName,
+            Size = material.Size,
+            Entries = listing.Entries,
+            Truncated = listing.Truncated,
+            CanDownload = CanDownload(user),
+        };
+    }
+
+    /// <summary>Starts re-reading every enabled library's folders. Administrators only.</summary>
+    /// <returns>The index status.</returns>
+    [HttpPost("Index/Refresh")]
+    [Authorize(Policy = "RequiresElevation")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<IndexStatus> RefreshIndex()
+    {
+        if (!_index.Status.Running)
+        {
+            _index.Status.Running = true;   // shown at once; the rebuild sets it again
+            _ = System.Threading.Tasks.Task.Run(() => _index.RebuildAsync(null, System.Threading.CancellationToken.None));
+        }
+
+        return Accepted(_index.Status);
+    }
+
+    /// <summary>The state of the folder index. Administrators only.</summary>
+    /// <returns>The index status.</returns>
+    [HttpGet("Index/Status")]
+    [Authorize(Policy = "RequiresElevation")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<IndexStatus> GetIndexStatus() => _index.Status;
 
     /// <summary>Tells the caller whether an item has additional material.</summary>
     /// <param name="itemId">Item ID.</param>
@@ -300,9 +361,10 @@ public class AdditionalMaterialController : ControllerBase
     /// <summary>Downloads an item's material. Authorized by the token, then re-checked against the user's current access.</summary>
     /// <param name="token">Token from <see cref="CreateLink"/>.</param>
     /// <returns>The archive, always as an attachment.</returns>
+    /// <param name="entry">Optional: one file inside the archive, as the Contents listing names it.</param>
     [HttpGet("Download/{token}")]
     [AllowAnonymous]
-    public ActionResult Download([FromRoute] string token)
+    public ActionResult Download([FromRoute] string token, [FromQuery] string? entry)
     {
         if (!_signer.TryValidate(token, out var itemId, out var userId))
         {
@@ -325,6 +387,20 @@ public class AdditionalMaterialController : ControllerBase
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         Response.Headers["Referrer-Policy"] = "no-referrer";
         Response.Headers["Cache-Control"] = "private, no-store";
+        if (!string.IsNullOrEmpty(entry))
+        {
+            var opened = _contents.Open(material.FullPath, entry);
+            if (opened is null)
+            {
+                return NotFound();
+            }
+
+            // Served as an opaque attachment whatever it is: the browser saves it, never renders it.
+            Response.ContentLength = opened.Value.Size;
+            var leaf = entry[(entry.LastIndexOf('/') + 1)..];
+            return File(opened.Value.Stream, "application/octet-stream", SafeFileName(leaf, "file"));
+        }
+
         return PhysicalFile(material.FullPath, MaterialLocator.ContentTypeFor(material.Format), DownloadName(item!), enableRangeProcessing: true);
     }
 
@@ -426,14 +502,21 @@ public class AdditionalMaterialController : ControllerBase
             }.Where(x => !string.IsNullOrWhiteSpace(x))),
             _ => item.Name,
         };
-        var cleaned = new string((name + " - Additional Material").Select(c => Array.IndexOf(BadFileNameChars, c) >= 0 || char.IsControl(c) ? ' ' : c).ToArray());
+        return SafeFileName(name + " - Additional Material", "Additional Material") + ".zip";
+    }
+
+    /// <summary>A name every file system accepts: bad characters become spaces, capped at 180 characters.</summary>
+    internal static string SafeFileName(string name, string fallback)
+    {
+        var cleaned = new string(name.Select(c => Array.IndexOf(BadFileNameChars, c) >= 0 || char.IsControl(c) ? ' ' : c).ToArray());
         cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", " ").Trim().TrimEnd('.');
         if (cleaned.Length > 180)
         {
-            cleaned = cleaned[..180].TrimEnd();
+            var ext = Path.GetExtension(cleaned);
+            cleaned = ext.Length is > 0 and <= 10 ? cleaned[..(180 - ext.Length)].TrimEnd() + ext : cleaned[..180].TrimEnd();
         }
 
-        return cleaned + ".zip";
+        return cleaned.Length == 0 ? fallback : cleaned;
     }
 
     // Characters Windows, macOS and Linux file systems refuse, plus the path separators.
@@ -473,6 +556,25 @@ public sealed class MaterialInfo
 
     /// <summary>Gets or sets the badge color for the <c>color</c> style.</summary>
     public string AccentColor { get; set; } = "#00A4DC";
+}
+
+/// <summary>An archive's listing for the Contents view.</summary>
+public sealed class MaterialContents
+{
+    /// <summary>Gets or sets the archive's file name.</summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the archive's size in bytes.</summary>
+    public long Size { get; set; }
+
+    /// <summary>Gets or sets the files, with <c>/</c> separated paths; folders are implied by the paths.</summary>
+    public IReadOnlyList<ContentsEntry> Entries { get; set; } = Array.Empty<ContentsEntry>();
+
+    /// <summary>Gets or sets a value indicating whether the archive has more files than are listed.</summary>
+    public bool Truncated { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether this user may download.</summary>
+    public bool CanDownload { get; set; }
 }
 
 /// <summary>A download token.</summary>
