@@ -44,6 +44,7 @@
                         <button type="button" role="tab" data-section="general" data-i18n="config.nav.general">General</button>
                         <button type="button" role="tab" data-section="appearance" data-i18n="config.nav.appearance">Appearance</button>
                         <button type="button" role="tab" data-section="contents" data-i18n="config.nav.contents">Contents</button>
+                        <button type="button" role="tab" data-section="building" data-i18n="config.nav.building">Building</button>
                         <button type="button" role="tab" data-section="tools" data-i18n="config.nav.tools">Tools</button>
                         <button type="button" role="tab" data-section="about" data-i18n="config.nav.about">About</button>
                     </nav>
@@ -154,6 +155,68 @@
                             </div>
                         </section>
 
+                        <!-- Building -->
+                        <section class="am-section" data-section="building" role="tabpanel" hidden>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.building">Build archives</h3>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amBuild" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.build">Build archives from the files stored with the videos</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.buildHelp">Uses the helper script's rules: lesson files go with their lesson, section and course files with their section and course, and programs, scripts and documents with macros or embedded code are replaced by a note. Courses that already have archives (made by hand or by the script) are left as they are.</div>
+                                </div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amBuildBg" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.buildBackground">Build in the background after library scans</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.buildBackgroundHelp">Otherwise an archive is built the first time someone downloads it. Archives are rebuilt when their files change.</div>
+                                </div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.location">Where built archives go</h3>
+                                <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
+                                    <input type="radio" name="amLocation" value="beside" />
+                                    <span data-i18n="config.locationBeside">Beside the videos (the plugin's cache where that folder cannot be written)</span>
+                                </label>
+                                <label class="emby-checkbox-label" style="display:block;">
+                                    <input type="radio" name="amLocation" value="cache" />
+                                    <span data-i18n="config.locationCache">Always in the plugin's cache: never write to the media folders</span>
+                                </label>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.single">One-file material</h3>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amSingle" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.singleFiles">Hand out a single file as it is, without an archive</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.singleFilesHelp">A lesson whose only material is one PDF downloads as that PDF.</div>
+                                </div>
+                                <div class="inputContainer">
+                                    <input id="amSingleMB" type="number" is="emby-input" min="1" max="100000" label="Zip a single file anyway from this size (MB)" data-i18n-label="config.singleZipFrom" />
+                                    <div class="fieldDescription" data-i18n="config.singleZipFromHelp">Only when zipping makes it noticeably smaller: the plugin checks a sample of the file, and never zips formats that are compressed already (images, Office files, video, zip).</div>
+                                </div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.leftOut">Files left out by a rule</h3>
+                                <div class="fieldDescription" data-i18n="config.leftOutHelp">Adverts, shortcuts and links pointing outside the library are left out of built archives. The contents view can list them, with the reason:</div>
+                                <label class="emby-checkbox-label" style="display:block; margin:.5em 0;">
+                                    <input type="radio" name="amLeftOut" value="everyone" />
+                                    <span data-i18n="config.leftOutEveryone">Show them to everyone</span>
+                                </label>
+                                <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
+                                    <input type="radio" name="amLeftOut" value="admins" />
+                                    <span data-i18n="config.leftOutAdmins">Show them to administrators only</span>
+                                </label>
+                                <label class="emby-checkbox-label" style="display:block;">
+                                    <input type="radio" name="amLeftOut" value="nobody" />
+                                    <span data-i18n="config.leftOutNobody">Don't show them</span>
+                                </label>
+                            </div>
+                        </section>
+
                         <!-- Tools: these act at once and need no Save -->
                         <section class="am-section" data-section="tools" role="tabpanel" hidden>
                             <div class="verticalSection">
@@ -164,6 +227,16 @@
                                         <span data-i18n="config.reread">Re-read folders</span>
                                     </button>
                                     <span id="amIndexStatus" class="fieldDescription" aria-live="polite"></span>
+                                </div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.built">Built archives</h3>
+                                <div class="fieldDescription" data-i18n="config.builtHelp">Rebuilds every archive the plugin builds, from the files on the disk now. Archives made by hand or by the script are never touched.</div>
+                                <div style="display:flex; gap:1em; align-items:center; flex-wrap:wrap; margin-top:.8em;">
+                                    <button is="emby-button" type="button" id="amRebuild" class="raised emby-button">
+                                        <span data-i18n="config.rebuild">Rebuild built archives</span>
+                                    </button>
+                                    <span id="amBuildStatus" class="fieldDescription" aria-live="polite"></span>
                                 </div>
                             </div>
                         </section>
@@ -215,7 +288,11 @@
                     'config.unsaved': '● Unsaved changes',
                     'config.saved': 'Settings saved',
                     'config.version': 'Version {version}',
-                    'config.copied': 'Copied'
+                    'config.copied': 'Copied',
+                    'config.building.running': 'Building\u2026 {progress}%',
+                    'config.building.off': 'Building is off (Building section).',
+                    'config.building.result': '{planned} archives planned, {current} built and up to date. {alone} courses have their own archives and are left as they are.',
+                    'config.building.failed': '{failed} could not be built; see the server log.'
                 };
 
                 function fill(key, values) {
@@ -326,6 +403,13 @@
                     page.querySelector('#amCards').checked = config.ShowOnCards !== false;
                     page.querySelector('#amLists').checked = config.ShowInLists !== false;
                     page.querySelector('#amNested').checked = config.ListNestedZips !== false;
+                    page.querySelector('#amBuild').checked = config.BuildArchives === true;
+                    page.querySelector('#amBuildBg').checked = config.BuildInBackground !== false;
+                    page.querySelector('input[name=amLocation][value=' + (config.BuiltArchiveLocation === 'cache' ? 'cache' : 'beside') + ']').checked = true;
+                    page.querySelector('#amSingle').checked = config.ServeSingleFiles !== false;
+                    page.querySelector('#amSingleMB').value = config.SingleFileZipFromMegabytes || 100;
+                    var lo = ['everyone', 'admins', 'nobody'].indexOf(config.ShowLeftOutFiles) >= 0 ? config.ShowLeftOutFiles : 'everyone';
+                    page.querySelector('input[name=amLeftOut][value=' + lo + ']').checked = true;
                     page.querySelector('input[name=amStyle][value=' + style + ']').checked = true;
                     page.querySelector('#amAccent').value = /^#[0-9A-Fa-f]{6}$/.test(config.AccentColor || '') ? config.AccentColor : DEFAULT_ACCENT;
                     preview();
@@ -350,6 +434,12 @@
                         config.ShowOnCards = page.querySelector('#amCards').checked;
                         config.ShowInLists = page.querySelector('#amLists').checked;
                         config.ListNestedZips = page.querySelector('#amNested').checked;
+                        config.BuildArchives = page.querySelector('#amBuild').checked;
+                        config.BuildInBackground = page.querySelector('#amBuildBg').checked;
+                        config.BuiltArchiveLocation = page.querySelector('input[name=amLocation]:checked').value;
+                        config.ServeSingleFiles = page.querySelector('#amSingle').checked;
+                        config.SingleFileZipFromMegabytes = parseInt(page.querySelector('#amSingleMB').value, 10) || 100;
+                        config.ShowLeftOutFiles = page.querySelector('input[name=amLeftOut]:checked').value;
                         return ApiClient.updatePluginConfiguration(pluginId, config);
                     }).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
@@ -392,6 +482,38 @@
                 }
 
                 function pollIndex() { return indexCall('GET', 'Status'); }
+
+                var buildPolling = null;
+
+                function showBuild(status) {
+                    var out = page.querySelector('#amBuildStatus');
+                    var button = page.querySelector('#amRebuild');
+                    button.disabled = !!status.Running || !page.querySelector('#amBuild').checked;
+                    if (status.Running) {
+                        out.textContent = fill('config.building.running', { progress: Math.round(status.Progress || 0) });
+                    } else if (!page.querySelector('#amBuild').checked) {
+                        out.textContent = fill('config.building.off');
+                    } else {
+                        out.textContent = fill('config.building.result', { planned: status.Planned, current: status.UpToDate, alone: status.CoursesLeftAlone })
+                            + (status.Failed ? ' ' + fill('config.building.failed', { failed: status.Failed }) : '');
+                    }
+                    window.clearTimeout(buildPolling);
+                    if (status.Running && page.isConnected) {
+                        buildPolling = window.setTimeout(pollBuild, 1500);
+                    }
+                }
+
+                function buildCall(method, path) {
+                    return ApiClient.ajax({ type: method, url: ApiClient.getUrl('AdditionalMaterial/Build/' + path), dataType: 'json' })
+                        .then(showBuild, function () { page.querySelector('#amBuildStatus').textContent = fill('config.indexFailed'); });
+                }
+
+                function pollBuild() { return buildCall('GET', 'Status'); }
+
+                page.querySelector('#amRebuild').addEventListener('click', function () {
+                    page.querySelector('#amRebuild').disabled = true;
+                    buildCall('POST', 'Rebuild');
+                });
 
                 page.querySelector('#amReread').addEventListener('click', function () {
                     page.querySelector('#amReread').disabled = true;
@@ -450,12 +572,12 @@
                     var last = 'general';
                     try { last = sessionStorage.getItem(SECTION_KEY) || 'general'; } catch (e) { /* not available */ }
                     showSection(last);
-                    translate().then(function () { pollIndex(); showVersion(); });
-                    Dashboard.showLoadingMsg();
-                    Promise.all([ApiClient.getPluginConfiguration(pluginId), ApiClient.getVirtualFolders()]).then(function (results) {
+                    var configured = Promise.all([ApiClient.getPluginConfiguration(pluginId), ApiClient.getVirtualFolders()]).then(function (results) {
                         render(results[0], results[1] || []);
                         Dashboard.hideLoadingMsg();
                     });
+                    Dashboard.showLoadingMsg();
+                    Promise.all([translate(), configured]).then(function () { pollIndex(); pollBuild(); showVersion(); });
                 });
             })();
         </script>

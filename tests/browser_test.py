@@ -167,12 +167,44 @@ with sync_playwright() as p:
     check("one download and one Contents button after returning to the course",
           page.locator(".additionalMaterialButton:not(.additionalMaterialContents)").count() == 1 and page.locator(".additionalMaterialContents").count() == 1,
           str(page.locator(".additionalMaterialButton").count()))
+    # Built archives: left-out files in the contents, one-file material offered as the file.
+    season_c = item_id(admin_token, "Season", "/media/training/Course C/Season 1")
+    lesson_c1 = item_id(admin_token, "Episode", "/media/training/Course C/Season 1/S01E01 - Build Lesson.mp4")
+    open_details(page, season_c)
+    try:
+        page.locator(MAIN).wait_for(timeout=20000)
+        page.locator(CONTENTS).click()
+        page.locator(".am-dialog").wait_for(timeout=10000)
+        page.locator(".am-dialog .am-archive").nth(0).locator(".am-contents-toggle").click()
+        page.locator(".am-dialog .am-leftout").first.wait_for(timeout=10000)
+        lo = page.locator(".am-dialog .am-leftout")
+        check("built archive: a left-out file is listed with its reason", "Bonus Resources.txt" in lo.inner_text() and "advert" in lo.inner_text(), lo.inner_text())
+        check("built archive: a left-out file has no download button", lo.locator("button.am-file-download").count() == 0)
+        page.screenshot(path="/t/screenshot-built-contents.png")
+        page.keyboard.press("Escape")
+    except Exception as e:  # noqa: BLE001
+        check("built archive: a left-out file is listed with its reason", False, str(e)[:120])
+    open_details(page, lesson_c1)
+    try:
+        page.locator(MAIN).wait_for(timeout=20000)
+        check("one-file lesson: the button names the PDF", "PDF" in (page.locator(MAIN).get_attribute("title") or ""), page.locator(MAIN).get_attribute("title"))
+        page.locator(MAIN).click()
+        page.locator(".am-download-all").wait_for(timeout=10000)
+        check("one-file lesson: Download names the file", "S01E01 - Build Lesson.pdf" in page.locator(".am-download-all").inner_text(), page.locator(".am-download-all").inner_text())
+        with page.expect_download(timeout=30000) as d:
+            page.locator(".am-download-all").click()
+        check("one-file lesson: downloads the PDF itself", d.value.suggested_filename == "S01E01 - Build Lesson.pdf", d.value.suggested_filename)
+        page.keyboard.press("Escape")
+    except Exception as e:  # noqa: BLE001
+        check("one-file lesson: the button names the PDF", False, str(e)[:120])
+
     # Grid: the training library's series cards
     page.goto(f"{BASE}/web/#/tv?topParentId={training}&serverId={server['Id']}")
     try:
-        page.wait_for_selector(".card .additionalMaterialIndicator", timeout=30000)
+        # Jellyfin keeps earlier pages in the DOM, hidden: look only at the page on show.
+        page.wait_for_selector(".page:not(.hide) .card .additionalMaterialIndicator", timeout=30000)
         check("grid card shows the indicator", True)
-        last = page.evaluate("() => { const i = document.querySelector('.additionalMaterialIndicator'); return i.parentElement.classList.contains('cardIndicators') && i === i.parentElement.lastElementChild; }")
+        last = page.evaluate("() => { const i = document.querySelector('.page:not(.hide) .additionalMaterialIndicator'); return i.parentElement.classList.contains('cardIndicators') && i === i.parentElement.lastElementChild; }")
         check("indicator is last in the card's top-right row", last)
         before = page.url
         # Click where the pointer is, as a person would: the card's hover overlay covers the indicator,
@@ -280,7 +312,7 @@ with sync_playwright() as p:
     try:
         page.locator(f"{cfgpage} .am-nav").wait_for(timeout=30000)
         page.wait_for_function("() => document.querySelectorAll('#amLibraries input').length > 0", timeout=30000)
-        check("settings page shows its sections", page.locator(f"{cfgpage} .am-nav button").count() == 5)
+        check("settings page shows its sections", page.locator(f"{cfgpage} .am-nav button").count() == 6)
         section("general")
         check("settings page lists the libraries", page.locator("#amLibraries input").count() == 2)
         check("only one section shows at a time", page.locator(f"{cfgpage} .am-section:not([hidden])").count() == 1)
@@ -309,7 +341,13 @@ with sync_playwright() as p:
         page.wait_for_function("() => /^Settings saved/.test(document.querySelector('#amSaveState').textContent.trim())", timeout=15000)
         section("contents")
         check("settings page has the nested-zip setting, on", page.locator("#amNested").is_checked())
+        section("building")
+        check("Building section shows building on (set by the server test)", page.locator("#amBuild").is_checked())
+        check("Building section: location choice", page.locator("input[name=amLocation]:checked").get_attribute("value") == "beside")
+        check("Building section: one-file threshold", page.locator("#amSingleMB").input_value() == "100", page.locator("#amSingleMB").input_value())
         section("tools")
+        page.wait_for_function("() => /archives planned/.test(document.querySelector('#amBuildStatus').textContent)", timeout=30000)
+        check("Tools shows the build status", True)
         page.locator("#amReread").click()
         page.wait_for_function("() => /Indexed \\d+ folders, \\d+ zips/.test(document.querySelector('#amIndexStatus').textContent)", timeout=30000)
         check("Re-read folders runs and reports the result", True)

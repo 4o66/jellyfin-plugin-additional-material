@@ -10,13 +10,13 @@ namespace Jellyfin.Plugin.AdditionalMaterial.Services;
 /// <summary>Builds the folder index at startup. Also listed in Scheduled Tasks to run by hand.</summary>
 public sealed class IndexRefreshTask : IScheduledTask
 {
-    private readonly MaterialIndex _index;
+    private readonly MaterialRefresh _refresh;
 
     /// <summary>Initializes a new instance of the <see cref="IndexRefreshTask"/> class.</summary>
-    /// <param name="index">The folder index.</param>
-    public IndexRefreshTask(MaterialIndex index)
+    /// <param name="refresh">Re-reads folders, plans and builds archives.</param>
+    public IndexRefreshTask(MaterialRefresh refresh)
     {
-        _index = index;
+        _refresh = refresh;
     }
 
     /// <inheritdoc />
@@ -26,14 +26,14 @@ public sealed class IndexRefreshTask : IScheduledTask
     public string Key => "Jellyfin.Plugin.AdditionalMaterial.IndexRefresh";
 
     /// <inheritdoc />
-    public string Description => "Re-reads the enabled libraries' folders for additional material archives. Also runs after every library scan.";
+    public string Description => "Re-reads the enabled libraries' folders for additional material archives, and builds archives when building is on. Also runs after every library scan.";
 
     /// <inheritdoc />
     public string Category => "Library";
 
     /// <inheritdoc />
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
-        => _index.RebuildAsync(progress, cancellationToken);
+        => _refresh.RunAsync(progress, cancellationToken);
 
     /// <inheritdoc />
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
@@ -45,16 +45,16 @@ public sealed class IndexRefreshTask : IScheduledTask
 /// <summary>Rebuilds the folder index after each library scan, while the disks are awake anyway.</summary>
 public sealed class IndexPostScanTask : ILibraryPostScanTask
 {
-    private readonly MaterialIndex _index;
+    private readonly MaterialRefresh _refresh;
 
     /// <summary>Initializes a new instance of the <see cref="IndexPostScanTask"/> class.</summary>
-    /// <param name="index">The folder index.</param>
-    public IndexPostScanTask(MaterialIndex index)
+    /// <param name="refresh">Re-reads folders, plans and builds archives.</param>
+    public IndexPostScanTask(MaterialRefresh refresh)
     {
-        _index = index;
+        _refresh = refresh;
     }
 
     /// <inheritdoc />
     public Task Run(IProgress<double> progress, CancellationToken cancellationToken)
-        => _index.RebuildAsync(progress, cancellationToken);
+        => _refresh.RunAsync(progress, cancellationToken);
 }

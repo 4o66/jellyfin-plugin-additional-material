@@ -54,4 +54,36 @@ public class PluginConfiguration : BasePluginConfiguration
     /// listed (and downloadable) in the Contents view, rather than appearing as one file.
     /// </summary>
     public bool ListNestedZips { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the plugin builds archives itself, from the files
+    /// stored with the videos, using the helper script's rules. A course that already has archives
+    /// the plugin did not build (made by hand or by the script) is left as it is.
+    /// </summary>
+    public bool BuildArchives { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether missing or outdated archives are built in the background after library scans, rather than on first download.</summary>
+    public bool BuildInBackground { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets where built archives go: <c>beside</c> (next to the videos, where the plugin
+    /// and the script look for them; the plugin's cache when that folder cannot be written) or
+    /// <c>cache</c> (always the plugin's own data folder, never touching the media folders).
+    /// </summary>
+    public string BuiltArchiveLocation { get; set; } = "beside";
+
+    /// <summary>
+    /// Gets or sets a value indicating whether material that is a single file is downloaded as
+    /// that file, with no archive around it, unless it is large and compresses well.
+    /// </summary>
+    public bool ServeSingleFiles { get; set; } = true;
+
+    /// <summary>Gets or sets the size, in MB, from which a single file is zipped anyway when zipping makes it noticeably smaller.</summary>
+    public int SingleFileZipFromMegabytes { get; set; } = 100;
+
+    /// <summary>
+    /// Gets or sets who sees the files that were left out of a built archive (adverts, shortcuts,
+    /// links outside the library), with the reason: <c>everyone</c>, <c>admins</c> or <c>nobody</c>.
+    /// </summary>
+    public string ShowLeftOutFiles { get; set; } = "everyone";
 }

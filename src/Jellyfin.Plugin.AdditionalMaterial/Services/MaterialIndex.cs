@@ -104,6 +104,10 @@ public sealed class MaterialIndex
     /// <returns><c>true</c> if it is a link.</returns>
     public bool IsLinkedFolder(string directory) => _linkedFolders.GetOrAdd(directory, ReadIsLinkedFolder);
 
+    /// <summary>Lists one folder again now, after the plugin wrote or removed an archive in it.</summary>
+    /// <param name="directory">An absolute folder path.</param>
+    public void Relist(string directory) => List(directory);
+
     /// <summary>Lists every folder of the enabled libraries. Runs at startup and after library scans.</summary>
     /// <param name="progress">Progress, 0–100.</param>
     /// <param name="cancellationToken">Cancellation.</param>

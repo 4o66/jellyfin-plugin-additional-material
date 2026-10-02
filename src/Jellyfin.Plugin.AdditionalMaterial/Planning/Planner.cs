@@ -43,6 +43,9 @@ public sealed class PlannedArchive
     /// <summary>Gets the files, in the order they go into the archive.</summary>
     public List<string> Files { get; } = [];
 
+    /// <summary>Gets the files a rule left out that would otherwise be in this archive, and why (not in the script's report).</summary>
+    public List<(string File, string Reason)> LeftOut { get; } = [];
+
     /// <summary>Gets the files replaced by a note, and why.</summary>
     public Dictionary<string, string> Removed { get; } = new(StringComparer.Ordinal);
 
@@ -138,7 +141,9 @@ public sealed class Planner
         course = Path.TrimEndingDirectorySeparator(Path.GetFullPath(course));
         var videosByDir = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var material = new List<string>();
+        var firstSkip = Skipped.Count;
         Walk(course, course, videosByDir, material);
+        var walkSkips = Skipped.Skip(firstSkip).ToList();
 
         var allVideos = videosByDir.Values.SelectMany(v => v).ToList();
         var subdirs = Subdirs(course);
@@ -219,6 +224,38 @@ public sealed class Planner
             else
             {
                 Skipped.Add((path, "its level is not enabled (--levels)"));
+            }
+        }
+
+        // Where each left-out file would have gone, so the contents view can show it (C# only).
+        foreach (var (file, reason) in walkSkips)
+        {
+            if (reason == "existing Additional Material archive")
+            {
+                continue;
+            }
+
+            var lesson = levels.Contains("lesson") ? MatchLesson(file, videosByDir) : null;
+            string? target = null;
+            if (lesson is not null)
+            {
+                target = Path.Combine(Path.GetDirectoryName(lesson.Value.Lesson)!, Py.Stem(Path.GetFileName(lesson.Value.Lesson)) + TriggerSuffix);
+            }
+
+            if (target is null || !groups.ContainsKey(target))
+            {
+                var section = sections.FirstOrDefault(sd => Under(file, sd));
+                target = section is not null && levels.Contains("section") ? Path.Combine(section, TriggerFolder) : null;
+            }
+
+            if (target is null || !groups.ContainsKey(target))
+            {
+                target = Path.Combine(course, TriggerFolder);
+            }
+
+            if (groups.TryGetValue(target, out var into))
+            {
+                into.LeftOut.Add((file, reason));
             }
         }
 

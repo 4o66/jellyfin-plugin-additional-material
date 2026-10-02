@@ -45,7 +45,9 @@
         'dialog.truncated': 'Showing the first {count} files.',
         'dialog.loading': 'Loading…',
         'dialog.loadFailed': 'The contents could not be read. Try again in a moment.',
-        'dialog.emptyArchive': 'This archive is empty.'
+        'dialog.emptyArchive': 'This archive is empty.',
+        'dialog.leftOut': 'left out: {reason}',
+        'dialog.downloadOne': 'Download {name} ({size})'
     };
     var settings = { ButtonStyle: 'color', AccentColor: '#00A4DC', ShowOnParents: 'all', ShowOnCards: true, ShowInLists: true };
     var ready = null;
@@ -103,6 +105,12 @@
             ]);
         }
         return ready;
+    }
+
+    // "ZIP" for an archive, else the file's own type: one-file material is handed out as is.
+    function formatOf(name) {
+        var dot = (name || '').lastIndexOf('.');
+        return dot > 0 ? name.slice(dot + 1).toUpperCase() : 'ZIP';
     }
 
     function formatSize(bytes) {
@@ -249,6 +257,10 @@
             '.am-spacer{display:inline-block;width:1.4em;flex:none;}',
             '.am-kind{font-size:.7em;letter-spacing:.04em;text-transform:uppercase;opacity:.55;border:1px solid rgba(255,255,255,.2);border-radius:.25em;padding:0 .3em;flex:none;}',
             '.am-removed .am-name{opacity:.7;font-style:italic;}',
+            '.am-leftout{opacity:.5;}',
+            '.am-leftout .am-name{text-decoration:line-through;text-decoration-color:rgba(255,255,255,.35);}',
+            '.am-leftout .am-name small{display:inline-block;text-decoration:none;}',
+            '.am-nodl{width:4.6em;}',
             '.am-foot{display:flex;justify-content:flex-end;gap:.6em;padding:.8em 1.2em 1em;border-top:1px solid rgba(255,255,255,.08);}',
             '.am-foot button{background:#00a4dc;border:none;color:#fff;border-radius:.3em;padding:.5em 1em;font:inherit;cursor:pointer;}',
             '.am-foot button:disabled{opacity:.4;cursor:default;}',
@@ -340,8 +352,9 @@
         });
         node.files.forEach(function (f) {
             var removed = /\.REMOVED\.txt$/i.test(f.name);
+            var leftOut = !!f.entry.LeftOut;
             var nested = f.entry.Children;
-            var r = el('div', 'am-node am-file' + (removed ? ' am-removed' : ''));
+            var r = el('div', 'am-node am-file' + (removed ? ' am-removed' : '') + (leftOut ? ' am-leftout' : ''));
             r.style.paddingLeft = pad;
             var c = null;
             if (nested) {
@@ -356,14 +369,22 @@
                 r.appendChild(el('span', 'am-kind', kind));
             }
             var name = el('span', 'am-name', shown);
-            if (removed) {
-                name.title = t('dialog.removed');
+            if (leftOut) {
+                name.title = f.entry.Reason || '';
+                name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.leftOut', { reason: f.entry.Reason || '' })));
+            } else if (removed) {
+                name.title = f.entry.Reason || t('dialog.removed');
                 name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.removed')));
             } else if (f.entry.TooLargeToList) {
                 name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.nestedTooLarge')));
             }
             r.appendChild(name);
             r.appendChild(el('span', 'am-size', formatSize(f.entry.Size)));
+            if (leftOut) {
+                r.appendChild(el('span', 'am-spacer am-nodl'));
+                container.appendChild(r);
+                return;
+            }
             var dl = el('button', 'am-file-download', t('dialog.download'));
             dl.type = 'button';
             dl.disabled = !canDownload;
@@ -427,7 +448,7 @@
         r.appendChild(c);
         r.appendChild(el('span', 'am-n', item.IndexNumber !== null && item.IndexNumber !== undefined && item.Level === 'lesson' ? String(item.IndexNumber) : ''));
         r.appendChild(el('span', 'am-name', label));
-        r.appendChild(el('span', 'am-size', 'ZIP ' + formatSize(item.Size)));
+        r.appendChild(el('span', 'am-size', formatOf(item.FileName) + ' ' + formatSize(item.Size)));
         if (gotoLabel) {
             var go = el('button', 'am-goto', gotoLabel);
             go.type = 'button';
@@ -498,7 +519,10 @@
         dialog.appendChild(body);
         if (single) {
             var foot = el('div', 'am-foot');
-            var all = el('button', 'am-download-all', t('dialog.downloadAll', { size: formatSize(tr.Self.Size) }));
+            var one = !/\.zip$/i.test(tr.Self.FileName || '');
+            var all = el('button', 'am-download-all', one
+                ? t('dialog.downloadOne', { name: tr.Self.FileName, size: formatSize(tr.Self.Size) })
+                : t('dialog.downloadAll', { size: formatSize(tr.Self.Size) }));
             all.type = 'button';
             all.disabled = !tr.CanDownload;
             all.addEventListener('click', function () { download(client, tr.Self.ItemId, all); });
@@ -525,13 +549,13 @@
         var direct = isParent(tr) && tr.Self;   // course/section with its own archive: download it
         var label;
         if (direct) {
-            label = t('button.label', { format: 'ZIP', size: formatSize(tr.Self.Size) });
+            label = t('button.label', { format: formatOf(tr.Self.FileName), size: formatSize(tr.Self.Size) });
             if (!tr.CanDownload) {
                 label = t('button.noPermission', { label: label });
                 button.disabled = true;
             }
         } else if (tr.Self && tr.Groups.length === 0) {
-            label = t('button.contentsOf', { format: 'ZIP', size: formatSize(tr.Self.Size) });
+            label = t('button.contentsOf', { format: formatOf(tr.Self.FileName), size: formatSize(tr.Self.Size) });
         } else {
             label = t('button.count', { count: countOf(tr) });
         }

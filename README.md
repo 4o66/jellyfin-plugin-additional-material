@@ -13,6 +13,30 @@ that Jellyfin otherwise ignores.
 - A helper script builds the archives from the files already stored with your videos
 
 
+## Building archives (optional)
+
+Turn on **Settings → Building → Build archives from the files stored with the videos** and the
+plugin makes the archives itself, with the helper script's rules, instead of you running the
+script. After each library scan (and at startup) it works out, per course, what would go where:
+
+- files that belong to one lesson go into that lesson's archive, the rest of a section's into the
+  section's, the rest into the course's; a course with folders that hold material but no videos is
+  packaged as one archive;
+- programs, scripts and documents with macros, embedded objects or PDF JavaScript are replaced by
+  a note saying why, with the file's SHA-256;
+- adverts, shortcuts and links pointing outside the library are left out (the contents view lists
+  them, with the reason: to everyone, administrators only, or nobody).
+
+Icons and contents show at once. The archives are built in the background (or, if you prefer, on
+first download), **beside the videos**, where the script would put them, or in the plugin's cache
+when that folder cannot be written, or always in the cache if you choose. They are rebuilt when
+their files change and removed when they are no longer needed; **Tools → Rebuild built
+archives** rebuilds them all. Material that is a single file is handed out as that file, unless
+it is large (100 MB by default) and compresses well.
+
+The plugin never touches archives it did not build: **a course that already has archives**
+(made by hand or by the script) **is left exactly as it is.**
+
 ## What users see
 
 - **Lesson (episode or movie) pages:** the Additional Material button opens **Contents**, a file

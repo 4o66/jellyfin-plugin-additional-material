@@ -11,6 +11,7 @@ using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Plugin.AdditionalMaterial.Planning;
 using Jellyfin.Plugin.AdditionalMaterial.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -18,6 +19,7 @@ using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.AdditionalMaterial.Api;
 
@@ -35,6 +37,9 @@ public class AdditionalMaterialController : ControllerBase
     private readonly LinkSigner _signer;
     private readonly ArchiveContents _contents;
     private readonly MaterialIndex _index;
+    private readonly ArchiveBuilder _builder;
+    private readonly MaterialRefresh _refresh;
+    private readonly Microsoft.Extensions.Logging.ILogger<AdditionalMaterialController> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="AdditionalMaterialController"/> class.</summary>
     /// <param name="libraryManager">Library manager.</param>
@@ -43,8 +48,14 @@ public class AdditionalMaterialController : ControllerBase
     /// <param name="signer">Download token signer.</param>
     /// <param name="contents">Archive listings.</param>
     /// <param name="index">The folder index.</param>
-    public AdditionalMaterialController(ILibraryManager libraryManager, IUserManager userManager, MaterialLocator locator, LinkSigner signer, ArchiveContents contents, MaterialIndex index)
+    /// <param name="builder">Builds planned archives.</param>
+    /// <param name="refresh">Re-reads folders, plans and builds.</param>
+    /// <param name="logger">Logger.</param>
+    public AdditionalMaterialController(ILibraryManager libraryManager, IUserManager userManager, MaterialLocator locator, LinkSigner signer, ArchiveContents contents, MaterialIndex index, ArchiveBuilder builder, MaterialRefresh refresh, Microsoft.Extensions.Logging.ILogger<AdditionalMaterialController> logger)
     {
+        _builder = builder;
+        _refresh = refresh;
+        _logger = logger;
         _libraryManager = libraryManager;
         _userManager = userManager;
         _locator = locator;
@@ -69,6 +80,11 @@ public class AdditionalMaterialController : ControllerBase
 
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         var material = item is null ? null : _locator.FindVerified(item);
+        if (material?.Plan is { } plan)
+        {
+            return PlannedContents(plan, user);
+        }
+
         var listing = material is null ? null : _contents.List(material.FullPath);
         if (material is null || listing is null)
         {
@@ -95,7 +111,7 @@ public class AdditionalMaterialController : ControllerBase
         if (!_index.Status.Running)
         {
             _index.Status.Running = true;   // shown at once; the rebuild sets it again
-            _ = System.Threading.Tasks.Task.Run(() => _index.RebuildAsync(null, System.Threading.CancellationToken.None));
+            _ = System.Threading.Tasks.Task.Run(() => _refresh.RunAsync(null, System.Threading.CancellationToken.None));
         }
 
         return Accepted(_index.Status);
@@ -107,6 +123,42 @@ public class AdditionalMaterialController : ControllerBase
     [Authorize(Policy = "RequiresElevation")]
     [Produces(MediaTypeNames.Application.Json)]
     public ActionResult<IndexStatus> GetIndexStatus() => _index.Status;
+
+    /// <summary>The state of archive building. Administrators only.</summary>
+    /// <returns>The build status.</returns>
+    [HttpGet("Build/Status")]
+    [Authorize(Policy = "RequiresElevation")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<BuildStatus> GetBuildStatus()
+    {
+        if (!_builder.Status.Running)
+        {
+            _builder.Count();
+        }
+
+        return _builder.Status;
+    }
+
+    /// <summary>Rebuilds every archive the plugin builds, from what is on the disk now. Administrators only.</summary>
+    /// <returns>The build status.</returns>
+    [HttpPost("Build/Rebuild")]
+    [Authorize(Policy = "RequiresElevation")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<BuildStatus> RebuildArchives()
+    {
+        if (Plugin.Instance?.Configuration.BuildArchives != true)
+        {
+            return Conflict(_builder.Status);
+        }
+
+        if (!_builder.Status.Running)
+        {
+            _builder.Status.Running = true;
+            _ = System.Threading.Tasks.Task.Run(() => _builder.BuildAll(force: true, System.Threading.CancellationToken.None));
+        }
+
+        return Accepted(_builder.Status);
+    }
 
     /// <summary>Tells the caller whether an item has additional material.</summary>
     /// <param name="itemId">Item ID.</param>
@@ -387,6 +439,11 @@ public class AdditionalMaterialController : ControllerBase
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         Response.Headers["Referrer-Policy"] = "no-referrer";
         Response.Headers["Cache-Control"] = "private, no-store";
+        if (material.Plan is { } plan)
+        {
+            return DownloadPlanned(item!, plan, material.FullPath, entry);
+        }
+
         if (!string.IsNullOrEmpty(entry))
         {
             var opened = _contents.Open(material.FullPath, entry);
@@ -402,6 +459,126 @@ public class AdditionalMaterialController : ControllerBase
         }
 
         return PhysicalFile(material.FullPath, MaterialLocator.ContentTypeFor(material.Format), DownloadName(item!), enableRangeProcessing: true);
+    }
+
+    private ActionResult DownloadPlanned(BaseItem item, PlanEntry plan, string archivePath, string? entry)
+    {
+        var archive = plan.Archive;
+        if (!string.IsNullOrEmpty(entry))
+        {
+            // One file of an archive the plugin builds: served from the original on disk (or its note).
+            var split = entry.IndexOf(ArchiveContents.NestedSeparator, StringComparison.Ordinal);
+            var outer = split > 0 ? entry[..split] : entry;
+            var file = archive.Files.FirstOrDefault(f => string.Equals(archive.EntryName(f), outer, StringComparison.Ordinal));
+            if (file is null)
+            {
+                return NotFound();
+            }
+
+            if (archive.Removed.TryGetValue(file, out var why))
+            {
+                if (split > 0)
+                {
+                    return NotFound();
+                }
+
+                var note = System.Text.Encoding.UTF8.GetBytes(ArchiveWriter.RemovalNote(file, archive.Base, why));
+                return File(note, "application/octet-stream", SafeFileName(outer[(outer.LastIndexOf('/') + 1)..], "note.txt"));
+            }
+
+            if (split > 0)
+            {
+                var opened = _contents.Open(file, entry[(split + ArchiveContents.NestedSeparator.Length)..]);
+                if (opened is null)
+                {
+                    return NotFound();
+                }
+
+                Response.ContentLength = opened.Value.Size;
+                return File(opened.Value.Stream, "application/octet-stream", SafeFileName(entry[(entry.LastIndexOf('/') + 1)..], "file"));
+            }
+
+            return PhysicalFile(file, "application/octet-stream", SafeFileName(Path.GetFileName(file), "file"), enableRangeProcessing: true);
+        }
+
+        if (plan.SingleFile() is { } single)
+        {
+            return PhysicalFile(single, "application/octet-stream", SafeFileName(Path.GetFileName(single), "file"), enableRangeProcessing: true);
+        }
+
+        string? built;
+        try
+        {
+            built = _builder.EnsureBuilt(archivePath);
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidDataException)
+        {
+            _logger.LogError(ex, "Additional Material: could not build {Archive}", archivePath);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        return built is null ? NotFound() : PhysicalFile(built, MaterialLocator.ContentTypeFor("zip"), DownloadName(item), enableRangeProcessing: true);
+    }
+
+    private MaterialContents PlannedContents(PlanEntry plan, User user)
+    {
+        var archive = plan.Archive;
+        var entries = new List<ContentsEntry>();
+        foreach (var f in archive.Files)
+        {
+            var name = archive.EntryName(f);
+            var info = new FileInfo(f);
+            var e = new ContentsEntry { Path = name, Size = info.Exists ? info.Length : 0 };
+            if (archive.Removed.TryGetValue(f, out var why))
+            {
+                e.Reason = why;
+            }
+            else if ((Plugin.Instance?.Configuration.ListNestedZips ?? true) && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                if (info.Length > ArchiveContents.MaxNestedBytes)
+                {
+                    e.TooLargeToList = true;
+                }
+                else if (_contents.List(f) is { } inner)
+                {
+                    e.Children = inner.Entries.Select(c => new ContentsEntry { Path = c.Path, Size = c.Size }).ToList();
+                }
+            }
+
+            entries.Add(e);
+        }
+
+        var show = Plugin.Instance?.Configuration.ShowLeftOutFiles ?? "everyone";
+        if (show == "everyone" || (show == "admins" && user.HasPermission(PermissionKind.IsAdministrator)))
+        {
+            foreach (var (file, reason) in archive.LeftOut)
+            {
+                entries.Add(new ContentsEntry { Path = Path.GetRelativePath(archive.Base, file).Replace('\\', '/'), LeftOut = true, Reason = reason, Size = SafeSize(file) });
+            }
+        }
+
+        var single = plan.SingleFile();
+        return new MaterialContents
+        {
+            FileName = single is null ? Path.GetFileName(archive.Archive) : Path.GetFileName(single),
+            Size = single is null ? plan.EstimatedSize : SafeSize(single),
+            Entries = entries,
+            CanDownload = CanDownload(user),
+            Built = true,
+            SingleFile = single is null ? null : Path.GetFileName(single),
+        };
+    }
+
+    private static long SafeSize(string file)
+    {
+        try
+        {
+            return new FileInfo(file).Length;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            return 0;
+        }
     }
 
     /// <summary>The web-client script that adds the button. Public, like the web client itself.</summary>
@@ -575,6 +752,12 @@ public sealed class MaterialContents
 
     /// <summary>Gets or sets a value indicating whether this user may download.</summary>
     public bool CanDownload { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the plugin builds this archive from the files beside the video.</summary>
+    public bool Built { get; set; }
+
+    /// <summary>Gets or sets the file handed out as is when the material is one file (no archive around it), or <c>null</c>.</summary>
+    public string? SingleFile { get; set; }
 }
 
 /// <summary>A download token.</summary>

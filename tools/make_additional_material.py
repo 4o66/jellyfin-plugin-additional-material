@@ -474,6 +474,9 @@ def archive_members(path: Path, seven: str | None) -> list[str]:
         return names
     if seven:
         r = subprocess.run([seven, "l", "-slt", "-ba", str(path)], capture_output=True, text=True)
+        if r.returncode != 0:
+            # Corrupt, or its listing is encrypted: it cannot be checked, so it is not trusted either.
+            return ["(contents not checked: 7z could not read this archive)"]
         return [line[7:] for line in r.stdout.splitlines() if line.startswith("Path = ")]
     return ["(contents not checked: no 7z program to read this archive)"]
 

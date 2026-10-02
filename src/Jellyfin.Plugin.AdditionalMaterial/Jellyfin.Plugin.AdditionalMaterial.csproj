@@ -3,8 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Jellyfin.Plugin.AdditionalMaterial</RootNamespace>
-    <AssemblyVersion>1.4.0.0</AssemblyVersion>
-    <FileVersion>1.4.0.0</FileVersion>
+    <AssemblyVersion>1.5.0.0</AssemblyVersion>
+    <FileVersion>1.5.0.0</FileVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -26,6 +26,9 @@
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Web\additional-material.js" />
     <EmbeddedResource Include="Web\i18n\*.json" />
+    <!-- The helper script's rules and note text: the plugin builds archives with the same ones. -->
+    <EmbeddedResource Include="..\..\tools\rules\*.toml" LogicalName="Rules.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\tools\i18n\*.json" LogicalName="Notes.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>
