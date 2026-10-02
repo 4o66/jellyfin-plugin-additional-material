@@ -31,6 +31,13 @@ public sealed class BuiltArchive
 
     /// <summary>Gets or sets when it was built.</summary>
     public DateTimeOffset BuiltUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets earlier copies that could not be removed yet (on Windows, while being
+    /// downloaded), with their sizes. They stay the plugin's, so a course is never mistaken for
+    /// having someone else's archives, and are removed on a later run.
+    /// </summary>
+    public Dictionary<string, long> Leftovers { get; set; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -63,7 +70,8 @@ public sealed class BuiltRegistry
     /// <summary>Whether the plugin built the archive at this path.</summary>
     /// <param name="archivePath">The archive's path.</param>
     /// <returns>Whether it is the plugin's.</returns>
-    public bool Owns(string archivePath) => Get(archivePath) is { } e && string.Equals(e.Location, archivePath, StringComparison.Ordinal);
+    public bool Owns(string archivePath) => Get(archivePath) is { } e
+        && (string.Equals(e.Location, archivePath, StringComparison.Ordinal) || e.Leftovers.ContainsKey(archivePath));
 
     /// <summary>Records an archive.</summary>
     /// <param name="archivePath">The archive's path.</param>
@@ -436,23 +444,25 @@ public sealed class ArchiveBuilder
             var size = ArchiveWriter.Write(plan.Archive, target);
 
             // Moved (beside the videos <-> cache): remove the old copy if it is untouched, so it is
-            // neither left behind nor mistaken later for an archive someone else made.
-            if (_registry.Get(archivePath) is { } previous && !string.Equals(previous.Location, target, StringComparison.Ordinal))
+            // neither left behind nor mistaken later for an archive someone else made. One that
+            // cannot be removed yet (Windows, while it downloads) is kept as the plugin's leftover.
+            var leftovers = new Dictionary<string, long>(StringComparer.Ordinal);
+            if (_registry.Get(archivePath) is { } previous)
             {
-                try
+                foreach (var (path, length) in previous.Leftovers)
                 {
-                    var old = new FileInfo(previous.Location);
-                    if (old.Exists && old.Length == previous.Size)
-                    {
-                        old.Delete();
-                    }
+                    leftovers[path] = length;
                 }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+
+                if (!string.Equals(previous.Location, target, StringComparison.Ordinal))
                 {
-                    _logger.LogWarning(ex, "Additional Material: could not remove the old copy {Archive}", previous.Location);
+                    leftovers[previous.Location] = previous.Size;
                 }
             }
-            _registry.Set(archivePath, new BuiltArchive { Location = target, Fingerprint = plan.Fingerprint, Size = size, BuiltUtc = DateTimeOffset.UtcNow });
+
+            leftovers.Remove(target);
+            RemoveLeftovers(leftovers);
+            _registry.Set(archivePath, new BuiltArchive { Location = target, Fingerprint = plan.Fingerprint, Size = size, BuiltUtc = DateTimeOffset.UtcNow, Leftovers = leftovers });
             _index.Relist(Path.GetDirectoryName(archivePath)!);
             _logger.LogInformation("Additional Material: built {Archive} ({Files} files)", target, plan.Archive.Files.Count);
             return target;
@@ -567,11 +577,44 @@ public sealed class ArchiveBuilder
         Status.CoursesLeftAlone = _plans.LastRun.LeftAlone;
     }
 
+    /// <summary>Removes earlier copies that are still as the plugin wrote them; keeps the ones that cannot be removed yet.</summary>
+    private void RemoveLeftovers(Dictionary<string, long> leftovers)
+    {
+        foreach (var (path, length) in leftovers.ToList())
+        {
+            try
+            {
+                var old = new FileInfo(path);
+                if (old.Exists && old.Length == length)
+                {
+                    old.Delete();
+                    _index.Relist(Path.GetDirectoryName(path)!);
+                }
+
+                leftovers.Remove(path);   // gone, or changed by someone: no longer ours to remove
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Additional Material: could not remove the old copy {Archive} yet; will retry", path);
+            }
+        }
+    }
+
     private void Tidy()
     {
         var planned = _plans.All;
         foreach (var (path, entry) in _registry.All())
         {
+            if (entry.Leftovers.Count > 0)
+            {
+                var before = entry.Leftovers.Count;
+                RemoveLeftovers(entry.Leftovers);
+                if (entry.Leftovers.Count != before)
+                {
+                    _registry.Set(path, entry);
+                }
+            }
+
             if (planned.ContainsKey(path))
             {
                 continue;
@@ -593,7 +636,10 @@ public sealed class ArchiveBuilder
                 continue;
             }
 
-            _registry.Remove(path);
+            if (entry.Leftovers.Count == 0)
+            {
+                _registry.Remove(path);   // otherwise kept until the last copy is gone
+            }
         }
     }
 

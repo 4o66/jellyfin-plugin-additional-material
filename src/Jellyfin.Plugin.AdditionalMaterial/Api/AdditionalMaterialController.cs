@@ -458,7 +458,7 @@ public class AdditionalMaterialController : ControllerBase
             return File(opened.Value.Stream, "application/octet-stream", SafeFileName(leaf, "file"));
         }
 
-        return PhysicalFile(material.FullPath, MaterialLocator.ContentTypeFor(material.Format), DownloadName(item!), enableRangeProcessing: true);
+        return ServeFile(material.FullPath, MaterialLocator.ContentTypeFor(material.Format), DownloadName(item!), enableRangeProcessing: true);
     }
 
     private ActionResult DownloadPlanned(BaseItem item, PlanEntry plan, string archivePath, string? entry)
@@ -498,12 +498,12 @@ public class AdditionalMaterialController : ControllerBase
                 return File(opened.Value.Stream, "application/octet-stream", SafeFileName(entry[(entry.LastIndexOf('/') + 1)..], "file"));
             }
 
-            return PhysicalFile(file, "application/octet-stream", SafeFileName(Path.GetFileName(file), "file"), enableRangeProcessing: true);
+            return ServeFile(file, "application/octet-stream", SafeFileName(Path.GetFileName(file), "file"), enableRangeProcessing: true);
         }
 
         if (plan.SingleFile() is { } single)
         {
-            return PhysicalFile(single, "application/octet-stream", SafeFileName(Path.GetFileName(single), "file"), enableRangeProcessing: true);
+            return ServeFile(single, "application/octet-stream", SafeFileName(Path.GetFileName(single), "file"), enableRangeProcessing: true);
         }
 
         string? built;
@@ -517,7 +517,17 @@ public class AdditionalMaterialController : ControllerBase
             return StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
-        return built is null ? NotFound() : PhysicalFile(built, MaterialLocator.ContentTypeFor("zip"), DownloadName(item), enableRangeProcessing: true);
+        return built is null ? NotFound() : ServeFile(built, MaterialLocator.ContentTypeFor("zip"), DownloadName(item), enableRangeProcessing: true);
+    }
+
+    /// <summary>
+    /// Serves a file as an attachment, opened so that it can still be replaced or deleted while it
+    /// downloads: on Windows a plain open would block rebuilding or moving the archive meanwhile.
+    /// </summary>
+    private FileStreamResult ServeFile(string path, string contentType, string downloadName, bool enableRangeProcessing)
+    {
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return File(stream, contentType, downloadName, enableRangeProcessing);
     }
 
     private MaterialContents PlannedContents(PlanEntry plan, User user)

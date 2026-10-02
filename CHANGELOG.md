@@ -12,6 +12,9 @@
 - Each file in a built archive is stored or deflated depending on whether compressing it pays.
 - The contents view lists files a rule left out, with the reason (everyone, admins only, or nobody).
 - Tools → **Rebuild built archives**.
+- Downloads are opened so the file can still be replaced or deleted while it downloads (on Windows
+  a download used to block rebuilding or moving that archive). A copy that cannot be removed yet is
+  kept as the plugin's and removed on a later run, never mistaken for someone else's archive.
 - The planner is a C# port of the helper script's, held to identical results by CI; it reads the
   same rule files, with Tomlyn (BSD-2-Clause), now shipped beside the plugin's DLL. On a real
   library: 9 courses, 242 archives, 307 files, 284 skips, no differences.
