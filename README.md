@@ -108,10 +108,26 @@ Videos, subtitles, `.nfo` files, Jellyfin artwork, dot-folders such as `.chapter
 shortcuts are always left out. A lone `.zip` that is all of a lesson's material is reused as is
 (hard-linked, so it takes no extra space) rather than zipped again.
 
-**Executable content is left out by default.** `.exe`, `.dll`, `.msi`, scripts such as `.bat`,
-`.ps1` and `.vbs`, and archives that contain them, are replaced in the zip by
-`<name>.REMOVED.txt`. The note says why the file was removed and gives its SHA-256. Course
-downloads are a common way malware spreads. Use `--allow-executables` to include them anyway.
+**Executable and active content is left out by default.** Each such file is replaced in the zip
+by `<name>.REMOVED.txt`, a note saying why it was removed, with its SHA-256. Course downloads are
+a common way malware spreads.
+
+- **Programs and scripts:** `.exe`, `.dll`, `.msi`, `.bat`, `.ps1`, `.vbs` and similar,
+  macro-enabled Office files (`.docm`, `.xlsm`, `.pptm`…), and archives that contain any of them.
+  `--allow-executables` includes them.
+- **Documents with active content:**
+  - Office files with macros, embedded OLE objects, ActiveX controls, external templates, frames
+    or OLE links (the route used by CVE-2022-30190 "Follina"), or DDE fields;
+  - PDFs with JavaScript, Launch actions, embedded files or RichMedia, including inside
+    compressed object streams and `#xx`-obfuscated names;
+  - RTF files with embedded objects.
+
+  Ordinary links, embedded charts and images are fine. `--allow-active-documents` includes them.
+
+Other rules from real course downloads: Udemy redirect placeholders (tiny HTML pages that only
+send the browser to the website), release-group adverts (link-only text files), and chapter
+sidecars (`*_chapters.xml`) are skipped. A file that lost its extension
+(`StudyPlan200301docx`) is named from its content inside the zip.
 
 **Optional VirusTotal lookups:** with `--virustotal-key KEY` (or `VT_API_KEY`), blocked files
 are looked up by SHA-256 and the result is written into the note. Only fingerprints are sent.

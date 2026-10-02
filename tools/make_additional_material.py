@@ -21,9 +21,11 @@ If a course has subfolders that hold material but no videos (Jellyfin shows no p
 the whole course is packaged as one additional-material.zip instead, folders kept inside, so the
 material is not split between the course page and section pages (--package, default auto).
 
-Executable content (.exe, .dll, scripts, and archives that contain them) is left out by default
+Executable content (.exe, .dll, scripts, macro-enabled Office files, archives that contain them) and
+documents with active content (macros, embedded objects, external templates or OLE links, DDE fields,
+PDF JavaScript, launch actions or embedded files, RTF objects) are left out by default
 and replaced in the archive by "<name>.REMOVED.txt", a note saying why, with the file's SHA-256 so
-it can be looked up on a malware scanner. --allow-executables includes it instead. With a
+it can be looked up on a malware scanner. --allow-executables and --allow-active-documents include them. With a
 VirusTotal API key, blocked files are looked up by SHA-256 (fingerprints only, nothing uploaded
 unless --virustotal-upload).
 
@@ -58,7 +60,9 @@ VIDEO_EXT = {".mp4", ".mkv", ".avi", ".m4v", ".mov", ".wmv", ".flv", ".webm", ".
 SUBTITLE_EXT = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".smi"}
 EXECUTABLE_EXT = {".exe", ".dll", ".msi", ".msp", ".bat", ".cmd", ".com", ".scr", ".pif", ".cpl",
                   ".hta", ".lnk", ".vbs", ".vbe", ".wsf", ".jar", ".reg", ".apk", ".dmg", ".pkg",
-                  ".ps1", ".psm1", ".sys", ".ocx", ".appx", ".msix", ".deb", ".rpm", ".app"}
+                  ".ps1", ".psm1", ".sys", ".ocx", ".appx", ".msix", ".deb", ".rpm", ".app",
+                  # macro-enabled Office files are code
+                  ".docm", ".dotm", ".xlsm", ".xltm", ".xlam", ".pptm", ".potm", ".ppsm", ".ppam", ".sldm"}
 NESTED_ARCHIVE_EXT = {".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".bz2", ".xz"}
 DEFAULT_EXCLUDES = ["*.url", "*.torrent", "Thumbs.db", "desktop.ini",
                     # release-group adverts that come with course downloads
@@ -141,6 +145,157 @@ def is_link_only_text(path: Path) -> bool:
     other = [line for line in lines if not URL_LINE.match(line)]
     # Every line a link, or several links with one short caption ("Visit us for more courses").
     return not other or (len(lines) >= 3 and len(other) == 1 and len(other[0].strip()) <= 60)
+
+
+# ---- active content in documents ---------------------------------------------------------------
+OOXML_EXT = {".docx", ".dotx", ".xlsx", ".xltx", ".xlsb", ".pptx", ".potx", ".ppsx", ".vsdx"}
+OLE2_EXT = {".doc", ".dot", ".xls", ".xlt", ".ppt", ".pot", ".pps", ".msg"}
+# Relationship types that make a document fetch or run something when it is opened.
+RISKY_REL = re.compile(r"/(attachedTemplate|oleObject|frame|subDocument|control|package)$")
+PDF_TOKENS = {b"/JavaScript": "JavaScript", b"/JS": "JavaScript", b"/Launch": "a Launch action (runs a program)",
+              b"/EmbeddedFile": "embedded files", b"/RichMedia": "RichMedia (Flash) content"}
+PDF_NAME_HEX = re.compile(rb"/[A-Za-z0-9#]*#[0-9A-Fa-f]{2}[A-Za-z0-9#]*")
+MAX_SCAN = 200 * 1024 * 1024
+
+
+def _pdf_names_decoded(data: bytes) -> bytes:
+    """PDF names may hide letters as #xx (/J#61vaScript); decode them so the tokens are visible."""
+    return PDF_NAME_HEX.sub(lambda m: re.sub(rb"#([0-9A-Fa-f]{2})", lambda h: bytes([int(h.group(1), 16)]), m.group(0)), data)
+
+
+def _looks_like_pdf_syntax(chunk: bytes) -> bool:
+    sample = chunk[:4096]
+    return bool(sample) and sum(32 <= b < 127 or b in (9, 10, 13) for b in sample) / len(sample) > 0.9
+
+
+def pdf_active_content(data: bytes) -> str | None:
+    import zlib
+    chunks = [data]
+    # Look inside compressed streams too, but only object streams or streams that decompress to
+    # PDF syntax: image and font data is binary, where "/JS" can occur by chance.
+    for m in re.finditer(rb"stream\r?\n", data):
+        start = m.end()
+        end = data.find(b"endstream", start)
+        if end < 0 or end - start > 50 * 1024 * 1024:
+            continue
+        header = data[max(0, m.start() - 512):m.start()]
+        header = header[header.rfind(b"<<"):] if b"<<" in header else header
+        if re.search(rb"/(Image|Font|FontFile\d?|XObject)\b|/Subtype\s*/(Image|Type1C|CIDFontType0C|OpenType)", header):
+            continue
+        try:
+            inflated = zlib.decompressobj().decompress(data[start:end], 50 * 1024 * 1024)
+        except zlib.error:
+            continue
+        if b"/ObjStm" in header or _looks_like_pdf_syntax(inflated):
+            chunks.append(inflated)
+    found = []
+    for chunk in chunks:
+        text = _pdf_names_decoded(chunk)
+        for token, label in PDF_TOKENS.items():
+            # A name token is followed by PDF syntax: whitespace, a delimiter, or the end.
+            if re.search(re.escape(token) + rb"(?=[\s/()<>\[\]{}%]|$)", text) and label not in found:
+                found.append(label)
+    return "the PDF contains " + ", ".join(found) if found else None
+
+
+def ooxml_active_content(z: zipfile.ZipFile) -> str | None:
+    found = []
+    names = z.namelist()
+    if any(n.lower().endswith("vbaproject.bin") for n in names):
+        found.append("macros")
+    if any(re.search(r"/embeddings/(oleObject[^/]*\.bin|[^/]*\.(bin|exe|dll|scr|js|vbs|bat|cmd|ps1|hta))$", n, re.I) for n in names):
+        found.append("embedded OLE objects")
+    if any("/activex/" in n.lower() for n in names):
+        found.append("ActiveX controls")
+    for n in names:
+        if not n.endswith(".rels"):
+            continue
+        try:
+            xml = z.read(n).decode("utf-8", "replace")
+        except (KeyError, zipfile.BadZipFile, RuntimeError):
+            continue
+        for rel in re.finditer(r"<Relationship\b[^>]*>", xml):
+            tag = rel.group(0)
+            kind = re.search(r'Type="([^"]+)"', tag)
+            if "TargetMode=\"External\"" in tag and kind and RISKY_REL.search(kind.group(1)):
+                target = re.search(r'Target="([^"]+)"', tag)
+                what = kind.group(1).rsplit("/", 1)[-1]
+                label = f"an external {what} ({(target.group(1) if target else '?')[:80]})"
+                if label not in found:
+                    found.append(label)
+    for n in names:
+        if re.match(r"(word/(document|header\d*|footer\d*)\.xml)$", n):
+            try:
+                if re.search(rb"\bDDE(AUTO)?\b", z.read(n)):
+                    found.append("a DDE field (asks to run a command)")
+                    break
+            except (KeyError, zipfile.BadZipFile, RuntimeError):
+                pass
+    return "the document contains " + ", ".join(found) if found else None
+
+
+def ole2_active_content(data: bytes) -> str | None:
+    found = []
+    utf16 = lambda s: s.encode("utf-16-le")  # noqa: E731  (OLE directory entry names)
+    if utf16("_VBA_PROJECT") in data or utf16("VBA") + b"\x00\x00" in data or utf16("Macros") in data:
+        found.append("macros")
+    if utf16("ObjectPool") in data or utf16("\x01Ole10Native") in data:
+        found.append("embedded objects")
+    return "the document contains " + ", ".join(found) if found else None
+
+
+def active_content(name: str, data: bytes) -> str | None:
+    """Why a document's content is active (macros, scripts, embedded objects), or None."""
+    ext = Path(name).suffix.lower()
+    if data.startswith(b"%PDF") or ext == ".pdf":
+        return pdf_active_content(data)
+    if data.startswith(b"{\\rtf") or ext == ".rtf":
+        return "the RTF contains embedded objects" if re.search(rb"\\obj(data|emb|link|autlink|update)\b|\\object\b", data) else None
+    if data.startswith(b"\xd0\xcf\x11\xe0") and (ext in OLE2_EXT or not ext):
+        return ole2_active_content(data)
+    if data.startswith(b"PK\x03\x04") and (ext in OOXML_EXT or not ext):
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                if "[Content_Types].xml" in z.namelist():
+                    return ooxml_active_content(z)
+        except (zipfile.BadZipFile, RuntimeError):
+            return None
+    return None
+
+
+DOCUMENT_EXT = {".pdf", ".rtf"} | OOXML_EXT | OLE2_EXT
+
+
+def file_active_content(path: Path) -> str | None:
+    ext = path.suffix.lower()
+    if ext not in DOCUMENT_EXT and ext:
+        return None
+    try:
+        if path.stat().st_size > MAX_SCAN:
+            return None
+        data = path.read_bytes()
+    except OSError:
+        return None
+    return active_content(path.name, data)
+
+
+def zip_active_documents(path: Path) -> list[str]:
+    """Documents inside a .zip (one level) that carry active content, as 'name: reason'."""
+    out = []
+    try:
+        with zipfile.ZipFile(path) as z:
+            for info in z.infolist():
+                ext = Path(info.filename).suffix.lower()
+                if ext in DOCUMENT_EXT and info.file_size <= MAX_SCAN:
+                    try:
+                        why = active_content(info.filename, z.read(info))
+                    except (zipfile.BadZipFile, RuntimeError, OSError):
+                        continue
+                    if why:
+                        out.append(f"{info.filename}: {why.replace('the document contains ', '').replace('the PDF contains ', '')}")
+    except (zipfile.BadZipFile, OSError, RuntimeError):
+        pass
+    return out
 
 
 OOXML_DIRS = {"word/": ".docx", "xl/": ".xlsx", "ppt/": ".pptx"}
@@ -299,8 +454,8 @@ def removal_note(path: Path, base: Path, why: str, scan: dict | None) -> str:
     return (
         f"REMOVED: {path.name}\n\n"
         f"This file was left out of the Additional Material archive because {why}.\n"
-        "Executable content in course downloads is a common way malware spreads, so it is not\n"
-        "handed out automatically.\n\n"
+        "Executable and active content in course downloads is a common way malware spreads, so it\n"
+        "is not handed out automatically.\n\n"
         f"  File:    {path.relative_to(base).as_posix()}\n"
         f"  Size:    {path.stat().st_size} bytes\n"
         f"  SHA-256: {digest}\n"
@@ -308,7 +463,7 @@ def removal_note(path: Path, base: Path, why: str, scan: dict | None) -> str:
         "The original is still on the server. You can look the SHA-256 up before deciding to trust it:\n"
         f"  https://www.virustotal.com/gui/search/{digest}\n\n"
         "An administrator can include such files by re-running make_additional_material.py with\n"
-        "--allow-executables.\n")
+        "--allow-executables (programs and scripts) or --allow-active-documents (documents).\n")
 
 
 # ---- planning --------------------------------------------------------------------------------
@@ -350,7 +505,9 @@ class Planner:
 
     def executable_reason(self, path: Path) -> str | None:
         if self.args.allow_executables:
-            return None
+            if self.args.allow_active_documents:
+                return None
+            return file_active_content(path) if path.suffix.lower() != ".zip" else None
         if path.suffix.lower() in EXECUTABLE_EXT:
             return f"{path.suffix.lower()} files are executable or script content"
         inner = archive_members(path, self.seven)
@@ -360,6 +517,14 @@ class Planner:
             return f"the archive contains executable or script content ({shown})"
         if inner and inner[0].startswith("(contents not checked"):
             return "it is an archive whose contents could not be checked for executable content"
+        if not self.args.allow_active_documents:
+            why = file_active_content(path)
+            if why:
+                return why
+            if path.suffix.lower() == ".zip":
+                docs = zip_active_documents(path)
+                if docs:
+                    return "the archive holds documents with active content (" + "; ".join(docs[:3]) + (" and more" if len(docs) > 3 else "") + ")"
         return None
 
     def screen(self, path: Path) -> None:
@@ -569,6 +734,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--exclude", action="append", metavar="GLOB", help="skip files matching GLOB (name or path within the course); repeatable")
     p.add_argument("--allow-executables", action="store_true",
                    help="include executable and script content as is (default: replace each with a .REMOVED.txt note)")
+    p.add_argument("--allow-active-documents", action="store_true",
+                   help="include documents with active content (macros, embedded objects, external templates, "
+                        "PDF JavaScript or launch actions); by default each is replaced by a note")
     p.add_argument("--allow-clean-executables", action="store_true",
                    help="with a VirusTotal key: include executable content VirusTotal knows and no engine flags")
     p.add_argument("--virustotal-key", metavar="KEY",
