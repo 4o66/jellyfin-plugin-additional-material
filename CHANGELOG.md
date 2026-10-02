@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.3.0 (2026-10-02)
+
+- **Contents view.** A lesson's button now opens a file tree of its archive, with a Download
+  button on every file and **Download all (.zip)** below. Course and section pages keep their
+  direct download and gain a **Contents** button listing every archive below them; each one
+  expands to its files.
+- Zips inside the material (lab packs and the like) are listed and their files downloadable one
+  by one (setting: "List the files inside zips that are inside the material", on by default).
+- Files the helper script replaced by a note show under their own name, marked as removed.
+- Settings: **Re-read folders** re-reads every enabled library's folders now, with progress and
+  the result.
+- The listing closes when you leave the page.
+- Files are listed from the zip's own directory (nothing unpacked) and served straight out of
+  it, as attachments, with the same signed links and permission checks as whole archives.
+
+## 1.2.3 (2026-10-02)
+
+- Fixed: grid and list icons could vanish until a reload. Jellyfin re-builds a card's indicator
+  row (and list rows' buttons) when their data refreshes, for example on returning to the tab, and
+  the script had marked those elements done. It now checks every pass whether the icon is there.
+- Security (Windows): the download-link signing key was readable by every local user, because it
+  inherited `C:\ProgramData`'s permissions. It is now created with only the service account,
+  SYSTEM and Administrators allowed (#5). On Linux it was already owner-only.
+- A key readable by other accounts (on any OS) is replaced at startup. Links issued in the last
+  few minutes stop working once.
+- If the key cannot be read or written, the plugin uses a temporary key until restart instead of
+  failing to issue links.
+
+## 1.2.2 (2026-10-02)
+
+- Fixed: grid and list icons sometimes never appeared until the page was reloaded. If Jellyfin
+  re-drew the cards while the status request was still on its way, the new cards read "still
+  asking" as "no material". Cards now wait for the answer. A failed status request is retried
+  (2 s, backing off to 30 s) instead of waiting for the page to change.
+
+## 1.2.1 (2026-10-02)
+
+- Security: material reached through a symbolic link or junction to a folder (below the library's
+  own folder) is now refused, as the README always said. Before, a linked folder pointing outside
+  the library had its zips served. Exploiting it needed write access to the library. Found in
+  cross-platform testing (#3).
+
 ## 1.2.0 (2026-10-02)
 
 - Icons appear at once. The plugin keeps an index of which folders hold material, built at

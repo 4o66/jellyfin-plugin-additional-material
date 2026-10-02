@@ -36,27 +36,39 @@ mkdir -p "$WORK"/{config/plugins,cache,media/training,media/other}
 
 # ---- sample media -----------------------------------------------------------
 T="$WORK/media/training/Course A"
-mkdir -p "$T/Season 1" "$T/Season 2" "$WORK/media/other/Course B/Season 1"
+mkdir -p "$T/Season 1" "$T/Season 2" "$WORK/media/other/Course B/Season 1" "$WORK/media/outside/Season 3"
 docker run --rm --entrypoint /usr/lib/jellyfin-ffmpeg/ffmpeg -v "$WORK/media:/m" "$IMAGE" \
   -loglevel error -f lavfi -i testsrc=duration=3:size=320x240:rate=10 -c:v libx264 -pix_fmt yuv420p /m/sample.mp4
 for f in "Season 1/S01E01 - Lesson One" "Season 1/S01E02 - Lesson Two" "Season 2/S02E01 - Sneaky"; do
   cp "$WORK/media/sample.mp4" "$T/$f.mp4"
 done
 cp "$WORK/media/sample.mp4" "$WORK/media/other/Course B/Season 1/S01E01 - Other.mp4"
+cp "$WORK/media/sample.mp4" "$WORK/media/outside/Season 3/S03E01 - Linked.mp4"
+ln -s "../../outside/Season 3" "$T/Season 3"                      # folder link out of the library
 rm "$WORK/media/sample.mp4"
 mk() { local dir=$1 name=$2; echo "material for $name" > "$WORK/notes.txt"; (cd "$WORK" && 7z a -bso0 -bsp0 "$dir/$name" notes.txt); }
 mk "$T" additional-material.zip                              # course
 mk "$T/Season 1" additional-material.zip                     # section
-mk "$T/Season 1" "S01E01 - Lesson One.material.zip"          # lesson
+# lesson: a folder, a nested zip and a removal note, for the Contents view
+L="$WORK/lesson"; mkdir -p "$L/slides"
+echo "material for S01E01" > "$L/notes.txt"; echo "intro slides" > "$L/slides/intro.txt"
+echo "tool.exe was removed" > "$L/tool.exe.REMOVED.txt"; echo "lab one" > "$WORK/lab1.txt"
+(cd "$WORK" && 7z a -bso0 -bsp0 "$L/labs.zip" lab1.txt)
+(cd "$L" && 7z a -bso0 -bsp0 "$T/Season 1/S01E01 - Lesson One.material.zip" notes.txt slides tool.exe.REMOVED.txt labs.zip)
 mk "$T/Season 1" "S01E02 - Lesson Two.material.7z"           # .7z is not recognized in this version
 ln -s /etc/hostname "$T/Season 2/S02E01 - Sneaky.material.zip"  # link escaping the library: refused
 mk "$WORK/media/other/Course B" additional-material.zip      # library not enabled: ignored
+mk "$WORK/media/outside/Season 3" "S03E01 - Linked.material.zip"  # reached only through the folder link: refused
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.2.0.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.2.0.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.3.0.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.3.0.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
+# A signing key left readable by others (as 1.2.2 and earlier wrote it on Windows) must be replaced.
+KEYFILE="$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/signing.key"
+mkdir -p "${KEYFILE%/*}"; head -c 32 /dev/urandom > "$KEYFILE"; chmod 644 "$KEYFILE"
+SEEDSUM=$(sha256sum < "$KEYFILE" | cut -c1-64)
 
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8096" \
   -v "$WORK/config:/config" -v "$WORK/cache:/cache" -v "$WORK/media:/media:ro" "$IMAGE" >/dev/null
@@ -85,9 +97,9 @@ done
 curl "${A[@]}" -X POST "$BASE/Library/Refresh" >/dev/null
 for _ in $(seq 1 60); do
   n=$(curl "${A[@]}" "$BASE/Items?Recursive=true&IncludeItemTypes=Episode" | jq -r '.TotalRecordCount // 0')
-  [[ $n -ge 4 ]] && break; sleep 2
+  [[ $n -ge 5 ]] && break; sleep 2
 done
-check "library scanned (episodes)" "$n" 4
+check "library scanned (episodes)" "$n" 5
 
 lib_id() { curl "${A[@]}" "$BASE/Library/VirtualFolders" | jq -r --arg n "$1" '.[] | select(.Name==$n) | .ItemId'; }
 TRAINING=$(lib_id training); OTHER=$(lib_id other)
@@ -113,7 +125,8 @@ SEASON1=$(item Season "/media/training/Course A/Season 1")
 E1=$(item Episode "/media/training/Course A/Season 1/S01E01 - Lesson One.mp4")
 E2=$(item Episode "/media/training/Course A/Season 1/S01E02 - Lesson Two.mp4")
 E3=$(item Episode "/media/training/Course A/Season 2/S02E01 - Sneaky.mp4")
-for v in SERIES SERIESB SEASON1 E1 E2 E3; do [[ -n ${!v} ]] || bad "test item $v not found"; done
+E4=$(item Episode "/media/training/Course A/Season 3/S03E01 - Linked.mp4")
+for v in SERIES SERIESB SEASON1 E1 E2 E3 E4; do [[ -n ${!v} ]] || bad "test item $v not found"; done
 info() { as "$1" "$BASE/AdditionalMaterial/Items/$2"; }
 
 # ---- lookups -------------------------------------------------------------------
@@ -122,6 +135,8 @@ check "section archive found"               "$(info "$ADMIN" "$SEASON1" | jq -r 
 check "lesson archive found"                "$(info "$ADMIN" "$E1" | jq -r '.FileName')" "S01E01 - Lesson One.material.zip"
 check ".7z is ignored"                      "$(info "$ADMIN" "$E2" | jq -r '.Available')" false
 check "link escaping library refused"       "$(info "$ADMIN" "$E3" | jq -r '.Available')" false
+check "zip under a linked folder refused"     "$(info "$ADMIN" "$E4" | jq -r '.Available')" false
+check "zip under a linked folder: no link"    "$(as "$ADMIN" -o /dev/null -w '%{http_code}' -X POST "$BASE/AdditionalMaterial/Items/$E4/Link")" 404
 check "library not enabled: ignored"        "$(info "$ADMIN" "$SERIESB" | jq -r '.Available')" false
 check "style defaults to two colors"     "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle + " " + .AccentColor')" "color #00A4DC"
 check "display settings defaults"        "$(as "$ADMIN" "$BASE/AdditionalMaterial/web/settings" | jq -c '[.ButtonStyle,.ShowOnParents,.ShowOnCards,.ShowInLists]')" '["color","all",true,true]'
@@ -161,6 +176,8 @@ check "unauthenticated lookup: 401"         "$(curl -s -o /dev/null -w '%{http_c
 TOKEN=$(as "$DL" -X POST "$BASE/AdditionalMaterial/Items/$E1/Link" | jq -r .Token)
 code=$(curl -s -D "$WORK/h" -o "$WORK/got" -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN")
 check "download: 200" "$code" 200
+check "signing key: readable-by-others key replaced" "$( [[ $(sha256sum < "$KEYFILE" | cut -c1-64) != "$SEEDSUM" ]] && echo yes)" yes
+check "signing key: owner-only (600)" "$(stat -c %a "$KEYFILE")" 600
 check "download: bytes match the file" "$(sha256sum < "$WORK/got" | cut -c1-64)" "$(sha256sum < "$T/Season 1/S01E01 - Lesson One.material.zip" | cut -c1-64)"
 grep -qi '^content-disposition: attachment' "$WORK/h" && ok "download: sent as attachment" || bad "download: sent as attachment"
 grep -qiE "^content-disposition: attachment; filename=\"?[^\"]+ - S01E01 - [^\"]+ - Additional Material\.zip" "$WORK/h" && ok "download: descriptive file name" || bad "download: descriptive file name ($(grep -i '^content-disposition' "$WORK/h" | tr -d '\r'))"
@@ -173,9 +190,40 @@ check "tampered token: 404" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/Add
 last=${TOKEN: -1}; alt=$(printf '%s' "$last" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-' 'BADCFEHGJILKNMPORQTSVUXWZYbadcfehgjilknmporqtsvuxwzy1032547698-_')
 check "non-canonical token: 404" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/${TOKEN%?}$alt")" 404
 check "garbage token: 404"  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/not-a-token")" 404
+# ---- contents ------------------------------------------------------------------
+cont() { as "$1" "$BASE/AdditionalMaterial/Items/$2/Contents"; }
+check "contents: lesson files listed" "$(cont "$ADMIN" "$E1" | jq -c '[.Entries[].Path] | sort')" '["labs.zip","notes.txt","slides/intro.txt","tool.exe.REMOVED.txt"]'
+check "contents: nested zip listed"   "$(cont "$ADMIN" "$E1" | jq -c '[.Entries[] | select(.Path=="labs.zip") | .Children[].Path]')" '["lab1.txt"]'
+check "contents: sizes are real"      "$(cont "$ADMIN" "$E1" | jq -r '.Entries[] | select(.Path=="notes.txt") | .Size')" "$(wc -c < "$L/notes.txt" | tr -d ' ')"
+check "contents: course archive"      "$(cont "$ADMIN" "$SERIES" | jq -c '[.Entries[].Path]')" '["notes.txt"]'
+check "contents: no material: 404"    "$(as "$ADMIN" -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Items/$E3/Contents")" 404
+check "contents: no access: 404"      "$(as "$OUTSIDE" -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Items/$E1/Contents")" 404
+check "contents: unauthenticated 401" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Items/$E1/Contents")" 401
+check "contents: reader may list"     "$(cont "$READER" "$E1" | jq -c '[.CanDownload, (.Entries|length)]')" '[false,4]'
+TOKEN2=$(as "$DL" -X POST "$BASE/AdditionalMaterial/Items/$E1/Link" | jq -r .Token)
+code=$(curl -s -D "$WORK/h2" -o "$WORK/got2" -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN2?entry=slides%2Fintro.txt")
+check "entry download: 200" "$code" 200
+check "entry download: bytes match" "$(cat "$WORK/got2")" "intro slides"
+grep -qiE '^content-disposition: attachment; filename="?intro\.txt' "$WORK/h2" && ok "entry download: attachment named after the file" || bad "entry download: attachment named after the file ($(grep -i '^content-disposition' "$WORK/h2" | tr -d '\r'))"
+grep -qi '^content-type: application/octet-stream' "$WORK/h2" && ok "entry download: opaque content type" || bad "entry download: opaque content type"
+check "entry download: file inside the nested zip" "$(curl -s "$BASE/AdditionalMaterial/Download/$TOKEN2?entry=labs.zip%21%2Flab1.txt")" "lab one"
+check "entry download: no such entry 404"  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN2?entry=nope.txt")" 404
+check "entry download: folder is not a file" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN2?entry=slides")" 404
+check "entry download: path tricks 404"    "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN2?entry=..%2F..%2Fetc%2Fpasswd")" 404
+check "entry download: needs a valid token" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/not-a-token?entry=notes.txt")" 404
+cfg '.ListNestedZips=false'
+check "nested listing off: shown as a plain file" "$(cont "$ADMIN" "$E1" | jq -c '[.Entries[] | select(.Path=="labs.zip") | .Children]')" '[null]'
+check "nested listing off: inner file not served" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN2?entry=labs.zip%21%2Flab1.txt")" 404
+cfg '.ListNestedZips=true'
+check "index refresh: readers refused"   "$(as "$READER" -o /dev/null -w '%{http_code}' -X POST "$BASE/AdditionalMaterial/Index/Refresh")" 403
+check "index refresh: admin accepted"    "$(as "$ADMIN" -o /dev/null -w '%{http_code}' -X POST "$BASE/AdditionalMaterial/Index/Refresh")" 202
+for _ in $(seq 20); do [[ $(as "$ADMIN" "$BASE/AdditionalMaterial/Index/Status" | jq -r .Running) == false ]] && break; sleep 1; done
+check "index status: counts folders and zips" "$(as "$ADMIN" "$BASE/AdditionalMaterial/Index/Status" | jq -c '[(.Folders>0), (.Zips>0), (.FinishedUtc!=null)]')" '[true,true,true]'
+
 # Revoke downloads after the link was issued: the link must stop working.
 curl "${A[@]}" "$BASE/Users/$DL_ID" | jq '.Policy | .EnableContentDownloading=false' | curl "${A[@]}" -X POST "$BASE/Users/$DL_ID/Policy" -d @- >/dev/null
 check "revoked permission: existing link dies" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN")" 404
+check "revoked permission: entry links die too" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN2?entry=notes.txt")" 404
 
 # ---- folder index -----------------------------------------------------------------
 # Pages are answered from the plugin's index; only downloads look at the disk.

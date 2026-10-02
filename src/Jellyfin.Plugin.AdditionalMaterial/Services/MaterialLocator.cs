@@ -125,7 +125,7 @@ public sealed class MaterialLocator
             return Validate(candidate, libraries);
         }
 
-        if (zip.IsLink || !InsideLibrary(Path.GetFullPath(candidate), libraries))
+        if (zip.IsLink || !InsideLibrary(Path.GetFullPath(candidate), libraries, _index.IsLinkedFolder))
         {
             return null;
         }
@@ -172,9 +172,9 @@ public sealed class MaterialLocator
         }
 
         var full = Path.GetFullPath(info.FullName);
-        if (!InsideLibrary(full, libraries))
+        if (!InsideLibrary(full, libraries, MaterialIndex.ReadIsLinkedFolder))
         {
-            _logger.LogWarning("Additional Material: refusing {File}: outside the library's folders", full);
+            _logger.LogWarning("Additional Material: refusing {File}: outside the library's folders, or under a linked folder", full);
             return null;
         }
 
@@ -182,12 +182,41 @@ public sealed class MaterialLocator
         return new MaterialFile(full, info.Name, info.Length, format);
     }
 
-    private static bool InsideLibrary(string full, IEnumerable<Folder> libraries)
+    /// <summary>
+    /// Whether <paramref name="full"/> lies inside one of the libraries' folders with no symbolic link
+    /// or junction on the way down. Path.GetFullPath does not resolve links, so a linked folder inside
+    /// the library would otherwise let a path that looks inside point anywhere. The library root
+    /// itself may be a link (that is the administrator's choice); only folders below it are checked.
+    /// </summary>
+    private static bool InsideLibrary(string full, IEnumerable<Folder> libraries, Func<string, bool> isLinkedFolder)
     {
-        return libraries
+        var roots = libraries
             .SelectMany(l => l.PhysicalLocations)
             .Where(r => !string.IsNullOrEmpty(r))
-            .Select(r => Path.TrimEndingDirectorySeparator(Path.GetFullPath(r)) + Path.DirectorySeparatorChar)
-            .Any(r => full.StartsWith(r, StringComparison.Ordinal));
+            .Select(r => Path.TrimEndingDirectorySeparator(Path.GetFullPath(r)) + Path.DirectorySeparatorChar);
+        foreach (var root in roots)
+        {
+            if (!full.StartsWith(root, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var linked = false;
+            for (var dir = Path.GetDirectoryName(full); dir is not null && dir.Length >= root.Length; dir = Path.GetDirectoryName(dir))
+            {
+                if (isLinkedFolder(dir))
+                {
+                    linked = true;
+                    break;
+                }
+            }
+
+            if (!linked)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

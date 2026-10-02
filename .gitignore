@@ -8,3 +8,7 @@ out/
 __pycache__/
 *.pyc
 tests/*.png
+
+# Maintainer-local: deploy tooling and instructions for one server. Never committed.
+/local/
+CLAUDE.local.md

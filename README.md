@@ -13,6 +13,17 @@ that Jellyfin otherwise ignores.
 - A helper script builds the archives from the files already stored with your videos
 
 
+## What users see
+
+- **Lesson (episode or movie) pages:** the Additional Material button opens **Contents**, a file
+  tree of the lesson's archive. Every file has its own Download button; **Download all (.zip)**
+  downloads the archive.
+- **Course and section pages:** the button downloads that level's archive directly, and a
+  **Contents** button lists every archive below, grouped by section, each expandable to its files.
+- **Grid cards and list rows:** a small icon; clicking it opens the listing.
+- Zips inside an archive are listed too, and their files downloadable (a setting).
+- Without the Download permission, users see the contents with the download buttons disabled.
+
 ## How it finds material
 
 The plugin looks for a `.zip` with a fixed name. It keeps a small in-memory index of which folders

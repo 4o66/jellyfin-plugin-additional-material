@@ -32,12 +32,32 @@
         'dialog.gotoSection': 'Go to section',
         'dialog.download': 'Download',
         'dialog.noPermission': 'Downloads are not enabled for your account.',
-        'dialog.empty': 'No additional material here.'
+        'dialog.empty': 'No additional material here.',
+        'button.contentsOf': 'Additional material ({format}, {size}): show contents',
+        'button.contents': 'Contents: {count} archives',
+        'dialog.contents': 'Contents',
+        'dialog.downloadAll': 'Download all (.zip, {size})',
+        'dialog.downloadFile': 'Download {name}',
+        'dialog.file': '1 file',
+        'dialog.files': '{count} files',
+        'dialog.removed': 'removed, replaced by a note',
+        'dialog.nestedTooLarge': 'too large to list',
+        'dialog.truncated': 'Showing the first {count} files.',
+        'dialog.loading': 'Loading…',
+        'dialog.loadFailed': 'The contents could not be read. Try again in a moment.',
+        'dialog.emptyArchive': 'This archive is empty.'
     };
     var settings = { ButtonStyle: 'color', AccentColor: '#00A4DC', ShowOnParents: 'all', ShowOnCards: true, ShowInLists: true };
     var ready = null;
     var treeCache = {};
+    var contentsCache = {};
+    // Settled answers only: an item's status, or false for "no material". Requests still on the
+    // way live in statusInFlight; mixing the two once let cards that Jellyfin re-drew mid-request
+    // read "still asking" as "nothing here" and never get their icon.
     var statusCache = {};
+    var statusInFlight = {};
+    var statusRetry = 0;
+    var FAILED = {};
     var iconCount = 0;
     var scheduled = false;
 
@@ -142,14 +162,15 @@
         return (tr.Self ? 1 : 0) + tr.Groups.reduce(function (n, g) { return n + g.Items.length; }, 0);
     }
 
-    function download(client, itemId, button) {
+    // Downloads an item's archive, or with entry, one file inside it.
+    function download(client, itemId, button, entry) {
         if (button) {
             button.disabled = true;
         }
         return getJson(client, 'AdditionalMaterial/Items/' + itemId + '/Link', { method: 'POST' })
             .then(function (link) {
                 var a = document.createElement('a');
-                a.href = client.getUrl('AdditionalMaterial/Download/' + link.Token);
+                a.href = client.getUrl('AdditionalMaterial/Download/' + link.Token) + (entry ? '?entry=' + encodeURIComponent(entry) : '');
                 a.rel = 'noopener noreferrer';
                 a.setAttribute('download', '');
                 document.body.appendChild(a);
@@ -169,19 +190,25 @@
             });
     }
 
-    // Open the listing for an item, or download right away when it has exactly its own archive.
-    function activate(client, itemId, button) {
+    function contents(client, itemId) {
+        if (!contentsCache[itemId]) {
+            contentsCache[itemId] = getJson(client, 'AdditionalMaterial/Items/' + itemId + '/Contents')
+                .catch(function (err) { delete contentsCache[itemId]; throw err; });
+        }
+        return contentsCache[itemId];
+    }
+
+    // Course and section pages keep a direct download; lessons open their contents.
+    function isParent(tr) {
+        return tr.Type === 'Series' || tr.Type === 'Season' || tr.Type === 'Folder' || tr.Groups.length > 0;
+    }
+
+    // Open the contents view for an item.
+    function activate(client, itemId) {
         return tree(client, itemId).then(function (tr) {
-            if (!tr || countOf(tr) === 0) {
-                return;
+            if (tr && countOf(tr) > 0) {
+                openDialog(client, tr);
             }
-            if (tr.Self && tr.Groups.length === 0) {
-                if (tr.CanDownload) {
-                    download(client, itemId, button);
-                }
-                return;
-            }
-            openDialog(client, tr);
         });
     }
 
@@ -210,6 +237,22 @@
             '.am-row button:disabled{opacity:.4;cursor:default;}',
             '.am-close{background:none;border:none;color:inherit;font-size:1.4em;cursor:pointer;line-height:1;padding:.2em;}',
             '.am-note{opacity:.7;font-size:.9em;margin:.4em 0 0;}',
+            '.am-tree{margin:.2em 0 .6em;font-size:.95em;}',
+            '.am-node{display:flex;align-items:center;gap:.5em;padding:.3em 0;border-top:1px solid rgba(255,255,255,.05);}',
+            '.am-node .am-name{flex:1;min-width:0;overflow-wrap:anywhere;}',
+            '.am-node .am-size{opacity:.6;font-size:.9em;white-space:nowrap;font-variant-numeric:tabular-nums;}',
+            '.am-node button{background:none;border:1px solid rgba(255,255,255,.2);color:inherit;border-radius:.3em;padding:.15em .55em;font:inherit;font-size:.8em;cursor:pointer;}',
+            '.am-node button:hover,.am-node button:focus-visible{border-color:#00a4dc;outline:none;}',
+            '.am-node button:disabled{opacity:.4;cursor:default;}',
+            '.am-caret{background:none!important;border:none!important;width:1.4em;padding:0!important;font-size:1em!important;opacity:.75;}',
+            '.am-caret[aria-expanded="true"]{transform:rotate(90deg);}',
+            '.am-spacer{display:inline-block;width:1.4em;flex:none;}',
+            '.am-kind{font-size:.7em;letter-spacing:.04em;text-transform:uppercase;opacity:.55;border:1px solid rgba(255,255,255,.2);border-radius:.25em;padding:0 .3em;flex:none;}',
+            '.am-removed .am-name{opacity:.7;font-style:italic;}',
+            '.am-foot{display:flex;justify-content:flex-end;gap:.6em;padding:.8em 1.2em 1em;border-top:1px solid rgba(255,255,255,.08);}',
+            '.am-foot button{background:#00a4dc;border:none;color:#fff;border-radius:.3em;padding:.5em 1em;font:inherit;cursor:pointer;}',
+            '.am-foot button:disabled{opacity:.4;cursor:default;}',
+            '.additionalMaterialContents .detailButton-content{display:flex;align-items:center;gap:.3em;}',
             '.additionalMaterialIndicator{background:rgba(0,0,0,.7);color:#fff;cursor:pointer;font-size:1.25em;width:1.6em;height:1.6em;}',
             '.additionalMaterialIndicator svg{width:1em;height:1em;}',
             '.additionalMaterialListButton .additionalMaterialIcon{font-size:1.67em;}',
@@ -239,8 +282,149 @@
         window.location.hash = '#/details?id=' + itemId + (serverId ? '&serverId=' + serverId : '');
     }
 
+    function caret(expanded, label) {
+        var c = el('button', 'am-caret', '\u25B8');
+        c.type = 'button';
+        c.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        c.setAttribute('aria-label', label);
+        return c;
+    }
+
+    function kindOf(name) {
+        var dot = name.lastIndexOf('.');
+        return dot > 0 && dot > name.length - 7 ? name.slice(dot + 1).toUpperCase() : '';
+    }
+
+    // Folders are implied by the entries' paths; nested zips carry their own Children.
+    function buildTree(entries, prefix) {
+        var root = { folders: {}, order: [], files: [] };
+        entries.forEach(function (e) {
+            var parts = e.Path.split('/');
+            var node = root;
+            for (var i = 0; i < parts.length - 1; i++) {
+                if (!node.folders[parts[i]]) {
+                    node.folders[parts[i]] = { folders: {}, order: [], files: [], name: parts[i] };
+                    node.order.push(parts[i]);
+                }
+                node = node.folders[parts[i]];
+            }
+            node.files.push({ name: parts[parts.length - 1], entry: e, path: prefix + e.Path });
+        });
+        return root;
+    }
+
+    function countFiles(node) {
+        return node.files.length + node.order.reduce(function (n, k) { return n + countFiles(node.folders[k]); }, 0);
+    }
+
+    function renderNode(client, itemId, canDownload, node, depth, container, open) {
+        var pad = (depth * 1.2) + 'em';
+        node.order.forEach(function (key) {
+            var folder = node.folders[key];
+            var r = el('div', 'am-node am-folder');
+            r.style.paddingLeft = pad;
+            var c = caret(open, folder.name);
+            r.appendChild(c);
+            r.appendChild(el('span', 'am-name', folder.name + '/'));
+            var n = countFiles(folder);
+            r.appendChild(el('span', 'am-size', t(n === 1 ? 'dialog.file' : 'dialog.files', { count: n })));
+            container.appendChild(r);
+            var kids = el('div', 'am-kids');
+            kids.hidden = !open;
+            renderNode(client, itemId, canDownload, folder, depth + 1, kids, false);
+            container.appendChild(kids);
+            c.addEventListener('click', function () {
+                kids.hidden = !kids.hidden;
+                c.setAttribute('aria-expanded', kids.hidden ? 'false' : 'true');
+            });
+        });
+        node.files.forEach(function (f) {
+            var removed = /\.REMOVED\.txt$/i.test(f.name);
+            var nested = f.entry.Children;
+            var r = el('div', 'am-node am-file' + (removed ? ' am-removed' : ''));
+            r.style.paddingLeft = pad;
+            var c = null;
+            if (nested) {
+                c = caret(false, f.name);
+                r.appendChild(c);
+            } else {
+                r.appendChild(el('span', 'am-spacer'));
+            }
+            var shown = removed ? f.name.replace(/\.REMOVED\.txt$/i, '') : f.name;
+            var kind = kindOf(shown);
+            if (kind) {
+                r.appendChild(el('span', 'am-kind', kind));
+            }
+            var name = el('span', 'am-name', shown);
+            if (removed) {
+                name.title = t('dialog.removed');
+                name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.removed')));
+            } else if (f.entry.TooLargeToList) {
+                name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.nestedTooLarge')));
+            }
+            r.appendChild(name);
+            r.appendChild(el('span', 'am-size', formatSize(f.entry.Size)));
+            var dl = el('button', 'am-file-download', t('dialog.download'));
+            dl.type = 'button';
+            dl.disabled = !canDownload;
+            dl.title = t('dialog.downloadFile', { name: removed ? f.name : shown });
+            dl.setAttribute('aria-label', dl.title);
+            dl.addEventListener('click', function () { download(client, itemId, dl, f.path); });
+            r.appendChild(dl);
+            container.appendChild(r);
+            if (nested) {
+                var kids = el('div', 'am-kids');
+                kids.hidden = true;
+                renderNode(client, itemId, canDownload, buildTree(nested, f.path + '!/'), depth + 1, kids, true);
+                container.appendChild(kids);
+                c.addEventListener('click', function () {
+                    kids.hidden = !kids.hidden;
+                    c.setAttribute('aria-expanded', kids.hidden ? 'false' : 'true');
+                });
+            }
+        });
+    }
+
+    // Fills container with an archive's file tree, fetched when first shown.
+    function showTree(client, itemId, container) {
+        if (container.dataset.loaded) {
+            return;
+        }
+        container.dataset.loaded = '1';
+        container.appendChild(el('p', 'am-note', t('dialog.loading')));
+        contents(client, itemId).then(function (c) {
+            container.textContent = '';
+            if (!c.Entries.length) {
+                container.appendChild(el('p', 'am-note', t('dialog.emptyArchive')));
+                return;
+            }
+            var root = buildTree(c.Entries, '');
+            renderNode(client, itemId, c.CanDownload, root, 0, container, c.Entries.length <= 40);
+            if (c.Truncated) {
+                container.appendChild(el('p', 'am-note', t('dialog.truncated', { count: c.Entries.length })));
+            }
+        }).catch(function () {
+            container.textContent = '';
+            delete container.dataset.loaded;
+            container.appendChild(el('p', 'am-note', t('dialog.loadFailed')));
+        });
+    }
+
     function row(client, tr, item, label, gotoLabel) {
+        var block = el('div', 'am-archive');
         var r = el('div', 'am-row');
+        var treeBox = el('div', 'am-tree');
+        treeBox.hidden = true;
+        var c = caret(false, t('dialog.contents'));
+        c.classList.add('am-contents-toggle');
+        c.addEventListener('click', function () {
+            treeBox.hidden = !treeBox.hidden;
+            c.setAttribute('aria-expanded', treeBox.hidden ? 'false' : 'true');
+            if (!treeBox.hidden) {
+                showTree(client, item.ItemId, treeBox);
+            }
+        });
+        r.appendChild(c);
         r.appendChild(el('span', 'am-n', item.IndexNumber !== null && item.IndexNumber !== undefined && item.Level === 'lesson' ? String(item.IndexNumber) : ''));
         r.appendChild(el('span', 'am-name', label));
         r.appendChild(el('span', 'am-size', 'ZIP ' + formatSize(item.Size)));
@@ -255,22 +439,25 @@
         dl.disabled = !tr.CanDownload;
         dl.addEventListener('click', function () { download(client, item.ItemId, dl); });
         r.appendChild(dl);
-        return r;
+        block.appendChild(r);
+        block.appendChild(treeBox);
+        return block;
     }
 
     function openDialog(client, tr) {
         closeDialog();
         injectStyles();
+        var single = tr.Self && tr.Groups.length === 0;   // one archive: show its files straight away
         var backdrop = el('div', 'am-backdrop');
         var dialog = el('div', 'am-dialog');
         dialog.setAttribute('role', 'dialog');
         dialog.setAttribute('aria-modal', 'true');
         var head = el('div', 'am-head');
         head.appendChild(iconElement('am-icon'));
-        var title = el('div', 'am-title', t('dialog.title'));
+        var title = el('div', 'am-title', single ? t('dialog.contents') : t('dialog.title'));
         title.appendChild(el('small', '', tr.Name));
         head.appendChild(title);
-        var close = el('button', 'am-close', '×');
+        var close = el('button', 'am-close', '\u00D7');
         close.type = 'button';
         close.title = t('dialog.close');
         close.setAttribute('aria-label', t('dialog.close'));
@@ -281,28 +468,43 @@
         if (!tr.CanDownload) {
             body.appendChild(el('p', 'am-note', t('dialog.noPermission')));
         }
-        if (tr.Self) {
-            var own = el('div', 'am-group');
-            own.appendChild(el('h3', '', t('dialog.this.' + tr.Type) !== 'dialog.this.' + tr.Type ? t('dialog.this.' + tr.Type) : t('dialog.this.other')));
-            own.appendChild(row(client, tr, tr.Self, tr.Self.FileName, null));
-            body.appendChild(own);
-        }
-        tr.Groups.forEach(function (g) {
-            var group = el('div', 'am-group');
-            group.appendChild(el('h3', '', (g.IndexNumber !== null && g.IndexNumber !== undefined ? g.IndexNumber + ' · ' : '') + (g.Name || '')));
-            g.Items.forEach(function (item) {
-                if (item.Level === 'section') {
-                    group.appendChild(row(client, tr, item, t('dialog.section'), t('dialog.gotoSection')));
-                } else {
-                    group.appendChild(row(client, tr, item, item.Name, t('dialog.goto')));
-                }
+        if (single) {
+            var only = el('div', 'am-tree am-single');
+            body.appendChild(only);
+            showTree(client, tr.Self.ItemId, only);
+        } else {
+            if (tr.Self) {
+                var own = el('div', 'am-group');
+                own.appendChild(el('h3', '', t('dialog.this.' + tr.Type) !== 'dialog.this.' + tr.Type ? t('dialog.this.' + tr.Type) : t('dialog.this.other')));
+                own.appendChild(row(client, tr, tr.Self, tr.Self.FileName, null));
+                body.appendChild(own);
+            }
+            tr.Groups.forEach(function (g) {
+                var group = el('div', 'am-group');
+                group.appendChild(el('h3', '', (g.IndexNumber !== null && g.IndexNumber !== undefined ? g.IndexNumber + ' \u00B7 ' : '') + (g.Name || '')));
+                g.Items.forEach(function (item) {
+                    if (item.Level === 'section') {
+                        group.appendChild(row(client, tr, item, t('dialog.section'), t('dialog.gotoSection')));
+                    } else {
+                        group.appendChild(row(client, tr, item, item.Name, t('dialog.goto')));
+                    }
+                });
+                body.appendChild(group);
             });
-            body.appendChild(group);
-        });
-        if (countOf(tr) === 0) {
-            body.appendChild(el('p', 'am-note', t('dialog.empty')));
+            if (countOf(tr) === 0) {
+                body.appendChild(el('p', 'am-note', t('dialog.empty')));
+            }
         }
         dialog.appendChild(body);
+        if (single) {
+            var foot = el('div', 'am-foot');
+            var all = el('button', 'am-download-all', t('dialog.downloadAll', { size: formatSize(tr.Self.Size) }));
+            all.type = 'button';
+            all.disabled = !tr.CanDownload;
+            all.addEventListener('click', function () { download(client, tr.Self.ItemId, all); });
+            foot.appendChild(all);
+            dialog.appendChild(foot);
+        }
         backdrop.appendChild(dialog);
         backdrop.addEventListener('click', function (e) {
             if (e.target === backdrop) {
@@ -320,23 +522,49 @@
         button.type = 'button';
         button.className = 'emby-button button-flat detailButton ' + BUTTON_CLASS;
         button.dataset.itemId = itemId;
-        var count = countOf(tr);
+        var direct = isParent(tr) && tr.Self;   // course/section with its own archive: download it
         var label;
-        if (tr.Self && tr.Groups.length === 0) {
+        if (direct) {
             label = t('button.label', { format: 'ZIP', size: formatSize(tr.Self.Size) });
             if (!tr.CanDownload) {
                 label = t('button.noPermission', { label: label });
                 button.disabled = true;
             }
+        } else if (tr.Self && tr.Groups.length === 0) {
+            label = t('button.contentsOf', { format: 'ZIP', size: formatSize(tr.Self.Size) });
         } else {
-            label = t('button.count', { count: count });
+            label = t('button.count', { count: countOf(tr) });
         }
         button.title = label;
         button.setAttribute('aria-label', label);
         var content = el('div', 'detailButton-content');
         content.appendChild(iconElement('detailButton-icon additionalMaterialIcon'));
         button.appendChild(content);
-        button.addEventListener('click', function () { activate(client, itemId, button); });
+        button.addEventListener('click', function () {
+            if (direct) {
+                download(client, itemId, button);
+            } else {
+                activate(client, itemId);
+            }
+        });
+        return button;
+    }
+
+    // The Contents button beside a course's or section's direct download.
+    function makeContentsButton(client, itemId, tr) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'emby-button button-flat detailButton ' + BUTTON_CLASS + ' additionalMaterialContents';
+        button.dataset.itemId = itemId;
+        var label = t('button.contents', { count: countOf(tr) });
+        button.title = label;
+        button.setAttribute('aria-label', label);
+        var content = el('div', 'detailButton-content');
+        var icon = el('span', 'material-icons detailButton-icon list_alt');
+        icon.setAttribute('aria-hidden', 'true');
+        content.appendChild(icon);
+        button.appendChild(content);
+        button.addEventListener('click', function () { openDialog(client, tr); });
         return button;
     }
 
@@ -361,7 +589,11 @@
             }
             if (bar.isConnected && !bar.querySelector('.' + BUTTON_CLASS + '[data-item-id="' + itemId + '"]')) {
                 var anchor = bar.querySelector('.btnDownload');
-                bar.insertBefore(makeButton(client, itemId, tr), anchor ? anchor.nextSibling : null);
+                var main = makeButton(client, itemId, tr);
+                bar.insertBefore(main, anchor ? anchor.nextSibling : null);
+                if (isParent(tr) && tr.Self) {
+                    bar.insertBefore(makeContentsButton(client, itemId, tr), main.nextSibling);
+                }
             }
         }).catch(function (err) {
             window.console && console.warn('Additional Material: could not add the button', err);
@@ -373,20 +605,26 @@
         return String(id || '').replace(/-/g, '').toLowerCase();
     }
 
+    // Idempotent, and run on every pass: Jellyfin re-renders cards (React re-builds a card's
+    // indicator row when its data refreshes, e.g. on returning to the tab) and recycles elements
+    // for other items, so "already done" is judged by whether the right icon is there now.
     function decorate(client, elem, kind, status) {
         var id = normId(elem.getAttribute('data-id'));
-        if (elem.dataset.amDone === id) {
+        var existing = elem.querySelector(kind === 'card' ? '.additionalMaterialIndicator' : '.additionalMaterialListButton');
+        if (existing && existing.dataset.amItem === id && status) {
             return;
         }
-        elem.dataset.amDone = id;
-        if (!status) {
+        if (existing) {
+            existing.remove();   // left over from the item this element showed before
+        }
+        if (!status) {  // false: settled, no material
             return;
         }
         var label = status.Own && status.Below === 0 ? t('dialog.title') : t('button.count', { count: (status.Own ? 1 : 0) + status.Below });
         var handler = function (e) {
             e.preventDefault();
             e.stopPropagation();
-            activate(client, id, null);
+            activate(client, id);
         };
         if (kind === 'card') {
             var container = elem.querySelector('.cardImageContainer') || elem.querySelector('.cardScalable');
@@ -417,6 +655,7 @@
             b.type = 'button';
             b.title = label;
             b.setAttribute('aria-label', label);
+            b.dataset.amItem = id;
             b.appendChild(iconElement('additionalMaterialIcon'));
             b.addEventListener('click', handler, true);
             var heart = buttons.querySelector('[is="emby-ratingbutton"]');
@@ -432,39 +671,55 @@
         if (settings.ShowInLists) {
             document.querySelectorAll('.listItem[data-id]').forEach(function (c) { targets.push([c, 'list']); });
         }
-        var pending = targets.filter(function (x) { return x[0].dataset.amDone !== normId(x[0].getAttribute('data-id')); });
+        var pending = targets;
         if (!pending.length) {
             return;
         }
         var ask = [];
+        var waits = [];
         pending.forEach(function (x) {
             var id = normId(x[0].getAttribute('data-id'));
-            if (!(id in statusCache) && ask.indexOf(id) < 0) {
+            if (id in statusCache) {
+                decorate(client, x[0], x[1], statusCache[id]);
+            } else if (id in statusInFlight) {
+                if (waits.indexOf(statusInFlight[id]) < 0) {
+                    waits.push(statusInFlight[id]);
+                }
+            } else if (ask.indexOf(id) < 0) {
                 ask.push(id);
             }
         });
-        var fetches = [];
         for (var i = 0; i < ask.length; i += 200) {
-            var chunk = ask.slice(i, i + 200);
-            chunk.forEach(function (id) { statusCache[id] = null; });
-            fetches.push(getJson(client, 'AdditionalMaterial/Items/Status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ Ids: chunk })
-            }).then(function (res) {
-                Object.keys(res || {}).forEach(function (k) { statusCache[normId(k)] = res[k]; });
-            }).catch(function () {
-                chunk.forEach(function (id) { delete statusCache[id]; });
-            }));
+            (function (chunk) {
+                var request = getJson(client, 'AdditionalMaterial/Items/Status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ Ids: chunk })
+                }).then(function (res) {
+                    var found = {};
+                    Object.keys(res || {}).forEach(function (k) { found[normId(k)] = res[k]; });
+                    chunk.forEach(function (id) { statusCache[id] = found[id] || false; });
+                    statusRetry = 0;
+                }, function () {
+                    // Try again shortly (backing off), rather than waiting for the page to change.
+                    statusRetry = Math.min(statusRetry ? statusRetry * 2 : 2000, 30000);
+                    window.setTimeout(schedule, statusRetry);
+                    return FAILED;
+                }).then(function (r) {
+                    chunk.forEach(function (id) { delete statusInFlight[id]; });
+                    if (r === FAILED) {
+                        throw r;
+                    }
+                });
+                chunk.forEach(function (id) { statusInFlight[id] = request; });
+                waits.push(request);
+            })(ask.slice(i, i + 200));
         }
-        Promise.all(fetches).then(function () {
-            pending.forEach(function (x) {
-                var id = normId(x[0].getAttribute('data-id'));
-                if (id in statusCache && x[0].isConnected) {
-                    decorate(client, x[0], x[1], statusCache[id]);
-                }
-            });
-        });
+        if (waits.length) {
+            // Decorate whatever cards are on the page once the answers are in: Jellyfin may have
+            // replaced the ones that were there when the request went out.
+            Promise.all(waits).then(schedule, function () { /* the retry timer handles it */ });
+        }
     }
 
     // ---- wiring ----------------------------------------------------------------------------------
@@ -527,7 +782,10 @@
         document.addEventListener(name, schedule, true);
     });
     // Material can change after the plugin's server-side cache expires; refresh lookups now and then.
-    window.setInterval(function () { treeCache = {}; statusCache = {}; }, 120000);
+    window.setInterval(function () { treeCache = {}; contentsCache = {}; statusCache = {}; }, 120000);
     new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
+    // The dialog belongs to the page it was opened on: leaving the page (a link, Back) closes it.
+    window.addEventListener('hashchange', closeDialog);
+    window.addEventListener('popstate', closeDialog);
     schedule();
 })();

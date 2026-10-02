@@ -28,6 +28,7 @@ public sealed class MaterialIndex
 {
     private readonly ConcurrentDictionary<string, (IReadOnlyDictionary<string, IndexedZip> Zips, DateTimeOffset Listed)> _folders = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _refreshing = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, bool> _linkedFolders = new(StringComparer.Ordinal);
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<MaterialIndex> _logger;
     private int _rebuilding;
@@ -41,8 +42,14 @@ public sealed class MaterialIndex
         _logger = logger;
     }
 
+    /// <summary>Raised after a full rebuild, so caches built on the old index can be dropped.</summary>
+    public event Action? Rebuilt;
+
     /// <summary>Gets the number of folders currently indexed.</summary>
     public int FolderCount => _folders.Count;
+
+    /// <summary>Gets the state of the latest rebuild, for the settings page.</summary>
+    public IndexStatus Status { get; } = new();
 
     /// <summary>
     /// The zips in <paramref name="directory"/>. Unknown folders are listed now (once); stale ones
@@ -76,6 +83,27 @@ public sealed class MaterialIndex
         return List(directory);
     }
 
+    /// <summary>Reads from the disk whether <paramref name="directory"/> is a symbolic link or junction.</summary>
+    /// <param name="directory">An absolute folder path.</param>
+    /// <returns><c>true</c> if it is a link, or cannot be read.</returns>
+    public static bool ReadIsLinkedFolder(string directory)
+    {
+        try
+        {
+            var info = new DirectoryInfo(directory);
+            return info.LinkTarget is not null || (info.Attributes & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>Whether <paramref name="directory"/> is a link, remembered from when it was last read.</summary>
+    /// <param name="directory">An absolute folder path.</param>
+    /// <returns><c>true</c> if it is a link.</returns>
+    public bool IsLinkedFolder(string directory) => _linkedFolders.GetOrAdd(directory, ReadIsLinkedFolder);
+
     /// <summary>Lists every folder of the enabled libraries. Runs at startup and after library scans.</summary>
     /// <param name="progress">Progress, 0–100.</param>
     /// <param name="cancellationToken">Cancellation.</param>
@@ -87,6 +115,9 @@ public sealed class MaterialIndex
             return Task.CompletedTask;
         }
 
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Status.Running = true;
+        Status.Progress = 0;
         try
         {
             var enabled = (Plugin.Instance?.Configuration.EnabledLibraryIds ?? Array.Empty<string>())
@@ -110,7 +141,8 @@ public sealed class MaterialIndex
                     seen.Add(dir);
                 }
 
-                progress?.Report(100.0 * ++done / Math.Max(1, roots.Count));
+                Status.Progress = 100.0 * ++done / Math.Max(1, roots.Count);
+                progress?.Report(Status.Progress);
             }
 
             // Forget folders that are gone, or that belong to libraries no longer enabled.
@@ -119,10 +151,18 @@ public sealed class MaterialIndex
                 _folders.TryRemove(key, out _);
             }
 
+            _linkedFolders.Clear();
+            Status.Folders = seen.Count;
+            Status.Zips = _folders.Values.Sum(f => f.Zips.Count);
+            Status.Milliseconds = watch.ElapsedMilliseconds;
+            Status.FinishedUtc = DateTimeOffset.UtcNow;
+            Rebuilt?.Invoke();
+
             _logger.LogInformation("Additional Material: indexed {Count} folders in {Roots} library location(s)", seen.Count, roots.Count);
         }
         finally
         {
+            Status.Running = false;
             Interlocked.Exchange(ref _rebuilding, 0);
         }
 
@@ -179,7 +219,30 @@ public sealed class MaterialIndex
             return zips;
         }
 
+        _linkedFolders[directory] = ReadIsLinkedFolder(directory);
         _folders[directory] = (zips, DateTimeOffset.UtcNow);
         return zips;
     }
+}
+
+/// <summary>The latest index rebuild, as the settings page shows it.</summary>
+public sealed class IndexStatus
+{
+    /// <summary>Gets or sets a value indicating whether a rebuild is running.</summary>
+    public bool Running { get; set; }
+
+    /// <summary>Gets or sets the running rebuild's progress, 0–100.</summary>
+    public double Progress { get; set; }
+
+    /// <summary>Gets or sets how many folders the last rebuild indexed.</summary>
+    public int Folders { get; set; }
+
+    /// <summary>Gets or sets how many zips the last rebuild found.</summary>
+    public int Zips { get; set; }
+
+    /// <summary>Gets or sets how long the last rebuild took.</summary>
+    public long Milliseconds { get; set; }
+
+    /// <summary>Gets or sets when the last rebuild finished, or <c>null</c> if none has yet.</summary>
+    public DateTimeOffset? FinishedUtc { get; set; }
 }

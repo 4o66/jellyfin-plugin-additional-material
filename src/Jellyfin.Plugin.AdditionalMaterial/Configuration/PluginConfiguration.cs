@@ -48,4 +48,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// uses it triggers a background re-check of that folder. The stored answer is still shown at once.
     /// </summary>
     public int IndexRefreshMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a zip inside a material archive has its own files
+    /// listed (and downloadable) in the Contents view, rather than appearing as one file.
+    /// </summary>
+    public bool ListNestedZips { get; set; } = true;
 }

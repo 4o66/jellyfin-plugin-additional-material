@@ -65,6 +65,13 @@
                                 <span data-i18n="config.lists">Show the icon on rows in list views</span>
                             </label>
                         </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="amNested" type="checkbox" is="emby-checkbox" />
+                                <span data-i18n="config.nested">List the files inside zips that are inside the material</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription" data-i18n="config.nestedHelp">A zip inside an archive (for example a lab pack) can then be opened in the Contents view and its files downloaded one by one.</div>
+                        </div>
                     </div>
 
                     <div class="verticalSection">
@@ -86,6 +93,17 @@
                             <label for="amAccent" data-i18n="config.accent">Accent color</label>
                             <input id="amAccent" type="color" value="#00A4DC" style="width:4em; height:2.2em; vertical-align:middle; margin-left:.5em;" />
                             <div class="fieldDescription" data-i18n="config.accentHelp">Used for the plus in the two-color style. Jellyfin's own accent is #00A4DC.</div>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h3 class="sectionTitle" data-i18n="config.index">Folder index</h3>
+                        <div class="fieldDescription" data-i18n="config.indexHelp">The plugin remembers which folders hold material, re-reading them after every library scan. Re-read now after adding or changing zips.</div>
+                        <div style="display:flex; gap:1em; align-items:center; flex-wrap:wrap; margin-top:.8em;">
+                            <button is="emby-button" type="button" id="amReread" class="raised emby-button">
+                                <span data-i18n="config.reread">Re-read folders</span>
+                            </button>
+                            <span id="amIndexStatus" class="fieldDescription" aria-live="polite"></span>
                         </div>
                     </div>
 
@@ -143,17 +161,65 @@
                     page.querySelector('input[name=amLevels][value=' + levels + ']').checked = true;
                     page.querySelector('#amCards').checked = config.ShowOnCards !== false;
                     page.querySelector('#amLists').checked = config.ShowInLists !== false;
+                    page.querySelector('#amNested').checked = config.ListNestedZips !== false;
                     page.querySelector('input[name=amStyle][value=' + style + ']').checked = true;
                     page.querySelector('#amAccent').value = /^#[0-9A-Fa-f]{6}$/.test(config.AccentColor || '') ? config.AccentColor : '#00A4DC';
                     preview();
                     page.querySelector('#amLinkMinutes').value = config.LinkLifetimeMinutes || 10;
                 }
 
+                var text = {
+                    'config.rereading': 'Re-reading\u2026 {progress}%',
+                    'config.indexResult': 'Indexed {folders} folders, {zips} zips, in {seconds} s ({when}).',
+                    'config.indexNever': 'Not indexed yet.',
+                    'config.indexFailed': 'Could not reach the server.'
+                };
+
+                function fill(key, values) {
+                    return (text[key] || key).replace(/\{(\w+)\}/g, function (m, k) { return values && k in values ? values[k] : m; });
+                }
+
+                var polling = null;
+
+                function showIndex(status) {
+                    var out = page.querySelector('#amIndexStatus');
+                    var button = page.querySelector('#amReread');
+                    button.disabled = !!status.Running;
+                    if (status.Running) {
+                        out.textContent = fill('config.rereading', { progress: Math.round(status.Progress || 0) });
+                    } else if (status.FinishedUtc) {
+                        out.textContent = fill('config.indexResult', {
+                            folders: status.Folders, zips: status.Zips,
+                            seconds: (status.Milliseconds / 1000).toFixed(1),
+                            when: new Date(status.FinishedUtc).toLocaleTimeString()
+                        });
+                    } else {
+                        out.textContent = fill('config.indexNever');
+                    }
+                    window.clearTimeout(polling);
+                    if (status.Running && page.isConnected) {
+                        polling = window.setTimeout(pollIndex, 1000);
+                    }
+                }
+
+                function indexCall(method, path) {
+                    return ApiClient.ajax({ type: method, url: ApiClient.getUrl('AdditionalMaterial/Index/' + path), dataType: 'json' })
+                        .then(showIndex, function () { page.querySelector('#amIndexStatus').textContent = fill('config.indexFailed'); page.querySelector('#amReread').disabled = false; });
+                }
+
+                function pollIndex() { return indexCall('GET', 'Status'); }
+
+                page.querySelector('#amReread').addEventListener('click', function () {
+                    page.querySelector('#amReread').disabled = true;
+                    indexCall('POST', 'Refresh');
+                });
+
                 function translate() {
                     var lang = document.documentElement.getAttribute('lang') || navigator.language || 'en';
                     return fetch(ApiClient.getUrl('AdditionalMaterial/web/strings', { lang: lang }))
                         .then(function (r) { return r.ok ? r.json() : {}; })
                         .then(function (strings) {
+                            Object.keys(text).forEach(function (k) { if (strings[k]) { text[k] = strings[k]; } });
                             page.querySelectorAll('[data-i18n]').forEach(function (el) {
                                 var text = strings[el.getAttribute('data-i18n')];
                                 if (text) { el.textContent = text; }
@@ -169,7 +235,7 @@
                 }
 
                 page.addEventListener('pageshow', function () {
-                    translate();
+                    translate().then(pollIndex);
                     Dashboard.showLoadingMsg();
                     Promise.all([ApiClient.getPluginConfiguration(pluginId), ApiClient.getVirtualFolders()]).then(function (results) {
                         render(results[0], results[1] || []);
@@ -197,6 +263,7 @@
                         config.ShowOnParents = lv ? lv.value : 'all';
                         config.ShowOnCards = page.querySelector('#amCards').checked;
                         config.ShowInLists = page.querySelector('#amLists').checked;
+                        config.ListNestedZips = page.querySelector('#amNested').checked;
                         ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
                     });
                     return false;
