@@ -57,9 +57,13 @@ mk "$WORK/media/outside/Season 3" "S03E01 - Linked.material.zip"  # reached only
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.2.2.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.2.2.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.2.3.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.2.3.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
+# A signing key left readable by others (as 1.2.2 and earlier wrote it on Windows) must be replaced.
+KEYFILE="$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/signing.key"
+mkdir -p "${KEYFILE%/*}"; head -c 32 /dev/urandom > "$KEYFILE"; chmod 644 "$KEYFILE"
+SEEDSUM=$(sha256sum < "$KEYFILE" | cut -c1-64)
 
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8096" \
   -v "$WORK/config:/config" -v "$WORK/cache:/cache" -v "$WORK/media:/media:ro" "$IMAGE" >/dev/null
@@ -167,6 +171,8 @@ check "unauthenticated lookup: 401"         "$(curl -s -o /dev/null -w '%{http_c
 TOKEN=$(as "$DL" -X POST "$BASE/AdditionalMaterial/Items/$E1/Link" | jq -r .Token)
 code=$(curl -s -D "$WORK/h" -o "$WORK/got" -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKEN")
 check "download: 200" "$code" 200
+check "signing key: readable-by-others key replaced" "$( [[ $(sha256sum < "$KEYFILE" | cut -c1-64) != "$SEEDSUM" ]] && echo yes)" yes
+check "signing key: owner-only (600)" "$(stat -c %a "$KEYFILE")" 600
 check "download: bytes match the file" "$(sha256sum < "$WORK/got" | cut -c1-64)" "$(sha256sum < "$T/Season 1/S01E01 - Lesson One.material.zip" | cut -c1-64)"
 grep -qi '^content-disposition: attachment' "$WORK/h" && ok "download: sent as attachment" || bad "download: sent as attachment"
 grep -qiE "^content-disposition: attachment; filename=\"?[^\"]+ - S01E01 - [^\"]+ - Additional Material\.zip" "$WORK/h" && ok "download: descriptive file name" || bad "download: descriptive file name ($(grep -i '^content-disposition' "$WORK/h" | tr -d '\r'))"

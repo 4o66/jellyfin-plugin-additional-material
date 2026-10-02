@@ -379,12 +379,18 @@
         return String(id || '').replace(/-/g, '').toLowerCase();
     }
 
+    // Idempotent, and run on every pass: Jellyfin re-renders cards (React re-builds a card's
+    // indicator row when its data refreshes, e.g. on returning to the tab) and recycles elements
+    // for other items, so "already done" is judged by whether the right icon is there now.
     function decorate(client, elem, kind, status) {
         var id = normId(elem.getAttribute('data-id'));
-        if (elem.dataset.amDone === id) {
+        var existing = elem.querySelector(kind === 'card' ? '.additionalMaterialIndicator' : '.additionalMaterialListButton');
+        if (existing && existing.dataset.amItem === id && status) {
             return;
         }
-        elem.dataset.amDone = id;
+        if (existing) {
+            existing.remove();   // left over from the item this element showed before
+        }
         if (!status) {  // false: settled, no material
             return;
         }
@@ -423,6 +429,7 @@
             b.type = 'button';
             b.title = label;
             b.setAttribute('aria-label', label);
+            b.dataset.amItem = id;
             b.appendChild(iconElement('additionalMaterialIcon'));
             b.addEventListener('click', handler, true);
             var heart = buttons.querySelector('[is="emby-ratingbutton"]');
@@ -438,7 +445,7 @@
         if (settings.ShowInLists) {
             document.querySelectorAll('.listItem[data-id]').forEach(function (c) { targets.push([c, 'list']); });
         }
-        var pending = targets.filter(function (x) { return x[0].dataset.amDone !== normId(x[0].getAttribute('data-id')); });
+        var pending = targets;
         if (!pending.length) {
             return;
         }

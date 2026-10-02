@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.3 (2026-10-02)
+
+- Fixed: grid and list icons could vanish until a reload. Jellyfin re-builds a card's indicator
+  row (and list rows' buttons) when their data refreshes, for example on returning to the tab, and
+  the script had marked those elements done. It now checks every pass whether the icon is there.
+- Security (Windows): the download-link signing key was readable by every local user, because it
+  inherited `C:\ProgramData`'s permissions. It is now created with only the service account,
+  SYSTEM and Administrators allowed (#5). On Linux it was already owner-only.
+- A key readable by other accounts (on any OS) is replaced at startup. Links issued in the last
+  few minutes stop working once.
+- If the key cannot be read or written, the plugin uses a temporary key until restart instead of
+  failing to issue links.
+
 ## 1.2.2 (2026-10-02)
 
 - Fixed: grid and list icons sometimes never appeared until the page was reloaded. If Jellyfin

@@ -197,6 +197,28 @@ with sync_playwright() as p:
             check(name, False, f"held={len(held)} " + str(e)[:120])
         race.close()
 
+    # Jellyfin (React) re-builds a card's indicator row, or a row's buttons, when its data refreshes.
+    # The icon must come back (1.2.2 had marked the element done and never re-added it).
+    def rebuilt(view, url, items, icon, wipe):
+        pg = ctx.new_page()
+        pg.goto(url)
+        name = f"{view}: icon comes back after Jellyfin re-builds the element"
+        try:
+            pg.wait_for_selector(f"{items} {icon}", timeout=30000)
+            pg.evaluate(wipe)
+            pg.wait_for_timeout(100)
+            gone = pg.locator(f"{items} {icon}").count() == 0
+            pg.wait_for_selector(f"{items} {icon}", timeout=10000)
+            check(name, gone, "the wipe did not remove the icon")
+        except Exception as e:  # noqa: BLE001
+            check(name, False, str(e)[:120])
+        pg.close()
+
+    rebuilt("grid", f"{BASE}/web/#/tv?topParentId={training}&serverId={server['Id']}", ".card[data-id]", ".additionalMaterialIndicator",
+            "() => document.querySelectorAll('.card[data-id] .cardIndicators').forEach(c => { c.innerHTML = ''; })")
+    rebuilt("list", f"{BASE}/web/#/details?id={season1}&serverId={server['Id']}", ".listItem[data-id]", ".additionalMaterialListButton",
+            "() => document.querySelectorAll('.additionalMaterialListButton').forEach(b => b.remove())")
+
     redraw_race("grid", f"{BASE}/web/#/tv?topParentId={training}&serverId={server['Id']}", ".card[data-id]", ".additionalMaterialIndicator")
     redraw_race("list", f"{BASE}/web/#/details?id={season1}&serverId={server['Id']}", ".listItem[data-id]", ".additionalMaterialListButton")
     page.goto(f"{BASE}/web/#/dashboard")
