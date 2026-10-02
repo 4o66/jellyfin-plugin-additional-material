@@ -12,7 +12,6 @@ that Jellyfin otherwise ignores.
 - Downloads honor Jellyfin's own **Allow media downloading** permission and library access
 - A helper script builds the archives from the files already stored with your videos
 
-> **Status:** in testing, not yet released.
 
 ## How it finds material
 
@@ -50,13 +49,20 @@ Only `.zip` is recognized in this version.
 
 ## Installing
 
-Until a release is published: build it (see below), copy
-`Jellyfin.Plugin.AdditionalMaterial.dll` into a folder named `Additional Material_1.1.1.0` in
-Jellyfin's `plugins` directory, and restart Jellyfin.
+1. In Jellyfin, go to **Dashboard → Plugins → Repositories**, choose **Add**, and enter:
+   - Name: `4o66`
+   - URL: `https://raw.githubusercontent.com/4o66/JellyfinPluginManifest/main/manifest.json`
+2. Open **Catalog**, find **Additional Material**, and install it.
+3. Restart Jellyfin.
 
 The **web button** needs the [File Transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation)
 plugin, which many web-UI plugins already use. Without it everything else still works, and the
 download API remains available, but no button is shown.
+
+To install by hand instead, download the zip from
+[Releases](https://github.com/4o66/jellyfin-plugin-additional-material/releases), unpack it into a
+folder named `Additional Material_<version>` in Jellyfin's `plugins` directory, and restart
+Jellyfin.
 
 ## Configuring
 

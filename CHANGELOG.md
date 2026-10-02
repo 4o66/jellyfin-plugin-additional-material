@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.1 (unreleased)
+## 1.1.1 (2026-10-02)
 
 - Downloads get descriptive names: "Course - S10E01 - Lesson - Additional Material.zip".
 - Browsers always get a fresh index.html, so plugin updates show up at once. (File
