@@ -110,13 +110,31 @@ public static class ArchiveWriter
                 }
             }
 
-            File.Move(tmp, target, overwrite: true);
+            Replace(tmp, target);
             return new FileInfo(target).Length;
         }
         catch
         {
             File.Delete(tmp);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Puts the new archive in place. Windows refuses to overwrite a file that is open (a download
+    /// in progress), even one opened to allow deletion; deleting it first works, and the download
+    /// keeps reading the old copy to the end.
+    /// </summary>
+    private static void Replace(string tmp, string target)
+    {
+        try
+        {
+            File.Move(tmp, target, overwrite: true);
+        }
+        catch (Exception ex) when (OperatingSystem.IsWindows() && (ex is UnauthorizedAccessException || ex is IOException) && File.Exists(target))
+        {
+            File.Delete(target);
+            File.Move(tmp, target, overwrite: true);
         }
     }
 
