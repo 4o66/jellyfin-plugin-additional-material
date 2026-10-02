@@ -261,5 +261,50 @@ class VirusTotalLookups(unittest.TestCase):
         self.assertEqual(e.exception.code, 2)
 
 
+class DownloadJunk(unittest.TestCase):
+    """Patterns found in real course downloads: Udemy redirect stubs, adverts, chapter sidecars,
+    and a document that lost its extension."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        c = self.course = Path(self.tmp.name, "Course")
+        s = c / "1. Basics"
+        touch(s / "1. Intro.mp4")
+        touch(s / "2. Quiz 1.html", b'<script type="text/javascript">window.location = "https://www.udemy.com/course/x/quiz/1";</script>')
+        touch(s / "3. Real Lesson.html", b"<html><body><h1>Subnetting</h1><p>" + b"Real lesson text. " * 40 + b"</p></body></html>")
+        touch(s / "1. Intro_chapters.xml", b"<Chapters/>")
+        touch(c / "Bonus Resources.txt", b"https://freecourseweb.com\r\n\r\nhttps://example.net/more\r\n")
+        touch(c / "Notes.txt", b"Remember to save your lab configs.\nhttps://example.com\n")
+        with zipfile.ZipFile(c / "4 - StudyPlan200301docx", "w") as z:
+            z.writestr("[Content_Types].xml", "<Types/>")
+            z.writestr("word/document.xml", "<w:document/>")
+        # a video-less folder holding only redirect stubs must not trigger whole-course packaging
+        touch(c / "6. Practice Tests" / "1. Test 1.html", b'<script>window.location = "https://www.udemy.com/t/1";</script>')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_rules(self):
+        code, out, report = run(str(self.course), "--apply")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("one archive", out)          # stubs-only folder is not material
+        section = names(self.course / "1. Basics" / "additional-material.zip")
+        self.assertEqual(section, ["3. Real Lesson.html"])
+        course = names(self.course / "additional-material.zip")
+        self.assertEqual(course, ["4 - StudyPlan200301.docx", "Notes.txt"])
+        reasons = {Path(x["file"]).name: x["reason"] for x in report["skipped"]}
+        self.assertIn("redirect placeholder", reasons["2. Quiz 1.html"])
+        self.assertIn("redirect placeholder", reasons["1. Test 1.html"])
+        self.assertIn("Bonus Resources.txt", reasons)  # caught as an advert, by content or by name
+        self.assertNotIn("1. Intro_chapters.xml", reasons)   # Jellyfin data: skipped quietly
+        self.assertTrue((self.course / "4 - StudyPlan200301docx").exists())  # original untouched
+
+    def test_link_only_text_detected_without_name_list(self):
+        touch(self.course / "Visit Us.txt", b"www.somecoursesite.example\nhttps://t.me/channel\n")
+        _, _, report = run(str(self.course))
+        reasons = {Path(x["file"]).name: x["reason"] for x in report["skipped"]}
+        self.assertIn("advert", reasons["Visit Us.txt"])
+
+
 if __name__ == "__main__":
     unittest.main()

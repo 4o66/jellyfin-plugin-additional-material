@@ -60,7 +60,16 @@ EXECUTABLE_EXT = {".exe", ".dll", ".msi", ".msp", ".bat", ".cmd", ".com", ".scr"
                   ".hta", ".lnk", ".vbs", ".vbe", ".wsf", ".jar", ".reg", ".apk", ".dmg", ".pkg",
                   ".ps1", ".psm1", ".sys", ".ocx", ".appx", ".msix", ".deb", ".rpm", ".app"}
 NESTED_ARCHIVE_EXT = {".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".bz2", ".xz"}
-DEFAULT_EXCLUDES = ["*.url", "*.torrent", "Thumbs.db", "desktop.ini"]
+DEFAULT_EXCLUDES = ["*.url", "*.torrent", "Thumbs.db", "desktop.ini",
+                    # release-group adverts that come with course downloads
+                    "Bonus Resources.txt", "Get Bonus Downloads Here*",
+                    # fnmatch reads [...] as a character set: "[[]" is a literal "["
+                    "[[] FreeCourseWeb.com ]*", "[[] FreeCourseLab.com ]*", "[[] DevCourseWeb.com ]*",
+                    "[[] WebToolTip.com ]*", "[[] CourseBoat.com ]*", "[[] FreeTutorials*"]
+# Chapter and edit-list sidecars that Jellyfin plugins write beside videos.
+SIDECAR = re.compile(r"(_chapters\.xml|\.edl|-chapters\.xml)$", re.IGNORECASE)
+REDIRECT = re.compile(rb"(window\.)?location(\.href)?\s*=|location\.replace\(|http-equiv\s*=\s*[\"']?refresh", re.IGNORECASE)
+URL_LINE = re.compile(r"^\s*(https?://|www\.)\S+\s*$", re.IGNORECASE)
 JELLYFIN_IMAGE = re.compile(
     r"^(folder|poster|cover|fanart|backdrop\d*|banner|logo|clearart|clearlogo|landscape|thumb|disc|art|"
     r"season\d*-(poster|banner|fanart|landscape)|season-specials-poster|.*-(thumb|poster|fanart|landscape))"
@@ -70,7 +79,7 @@ ATTACHMENT_DIRS = {"attached_files", "attachments", "resources"}
 TRIGGER_FOLDER = "additional-material.zip"
 TRIGGER_SUFFIX = ".material.zip"
 LESSON_NUMBER = re.compile(r"^\s*0*(\d{1,4})(?=[\s._\-)\]]|$)")
-QUIET_SKIPS = {"video, subtitle or nfo", "Jellyfin artwork", "hidden or Jellyfin data (dot) file"}
+QUIET_SKIPS = {"video, subtitle or nfo", "Jellyfin artwork", "hidden or Jellyfin data (dot) file", "Jellyfin chapter data"}
 
 
 @dataclass
@@ -99,6 +108,75 @@ def sha256_of(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def is_redirect_stub(path: Path) -> bool:
+    """A tiny HTML page whose only job is to send the browser elsewhere (Udemy quiz placeholders)."""
+    if path.suffix.lower() not in (".html", ".htm"):
+        return False
+    try:
+        if path.stat().st_size > 4096:
+            return False
+        data = path.read_bytes()
+    except OSError:
+        return False
+    if not REDIRECT.search(data):
+        return False
+    text = re.sub(rb"<script.*?</script>|<style.*?</style>|<[^>]+>", b" ", data, flags=re.S | re.I)
+    return len(re.sub(rb"\s+", b"", text)) < 40
+
+
+def is_link_only_text(path: Path) -> bool:
+    """A small text file that is nothing but web links: the release group's advert."""
+    if path.suffix.lower() not in (".txt", ".text", ""):
+        return False
+    try:
+        if path.stat().st_size > 2048:
+            return False
+        lines = [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    except OSError:
+        return False
+    if not lines or len(lines) > 40:
+        return False
+    other = [line for line in lines if not URL_LINE.match(line)]
+    # Every line a link, or several links with one short caption ("Visit us for more courses").
+    return not other or (len(lines) >= 3 and len(other) == 1 and len(other[0].strip()) <= 60)
+
+
+OOXML_DIRS = {"word/": ".docx", "xl/": ".xlsx", "ppt/": ".pptx"}
+EXT_HINTS = (".docx", ".xlsx", ".pptx", ".pdf", ".zip", ".doc", ".xls", ".ppt", ".txt", ".png", ".jpg")
+
+
+def archive_name(path: Path, base: Path) -> str:
+    """Name inside the archive. A file that lost its extension ("Plan200301docx") gets one back,
+    detected from its content; the original on disk is left alone."""
+    rel = path.relative_to(base).as_posix()
+    if path.suffix and path.suffix.lower() not in (".", ""):
+        return rel
+    ext = None
+    try:
+        with open(path, "rb") as f:
+            head = f.read(8)
+        if head.startswith(b"%PDF"):
+            ext = ".pdf"
+        elif head.startswith(b"PK\x03\x04"):
+            ext = ".zip"
+            with zipfile.ZipFile(path) as z:
+                listing = z.namelist()
+            if "[Content_Types].xml" in listing:
+                ext = next((e for d, e in OOXML_DIRS.items() if any(n.startswith(d) for n in listing)), ".zip")
+        elif head.startswith(b"\xd0\xcf\x11\xe0"):
+            ext = ".doc"
+        elif head[:4] in (b"\x89PNG", b"\xff\xd8\xff\xe0", b"\xff\xd8\xff\xe1"):
+            ext = ".png" if head.startswith(b"\x89PNG") else ".jpg"
+    except (OSError, zipfile.BadZipFile):
+        return rel
+    if not ext:
+        return rel
+    hint = ext.lstrip(".")
+    if rel.lower().endswith(hint):                       # "...200301docx" -> "...200301.docx"
+        return rel[: -len(hint)].rstrip(".") + ext
+    return rel + ext
 
 
 def find_7z() -> str | None:
@@ -257,8 +335,12 @@ class Planner:
         ext = path.suffix.lower()
         if ext in VIDEO_EXT or ext in SUBTITLE_EXT or ext == ".nfo":
             return "video, subtitle or nfo"
-        if JELLYFIN_IMAGE.match(path.name):
-            return "Jellyfin artwork"
+        if JELLYFIN_IMAGE.match(path.name) or SIDECAR.search(path.name):
+            return "Jellyfin artwork" if JELLYFIN_IMAGE.match(path.name) else "Jellyfin chapter data"
+        if is_redirect_stub(path):
+            return "redirect placeholder (only sends the browser to a website)"
+        if is_link_only_text(path):
+            return "link-only text file (advert)"
         if is_trigger(path.name):
             return "existing Additional Material archive"
         for pattern in self.excludes:
@@ -408,7 +490,7 @@ def write_group(g: Group, args: argparse.Namespace) -> tuple[str, str]:
         method = zipfile.ZIP_STORED if args.compression == "store" else zipfile.ZIP_DEFLATED
         with zipfile.ZipFile(tmp, "w", compression=method, compresslevel=None if method == zipfile.ZIP_STORED else 6) as z:
             for f in g.files:
-                rel = f.relative_to(g.base).as_posix()
+                rel = archive_name(f, g.base)
                 if f in g.removed:
                     z.writestr(rel + ".REMOVED.txt", removal_note(f, g.base, g.removed[f], g.scans.get(f)))
                 else:
