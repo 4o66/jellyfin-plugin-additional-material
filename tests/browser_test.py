@@ -188,8 +188,8 @@ with sync_playwright() as p:
           page.locator(".additionalMaterialButton:not(.additionalMaterialContents)").count() == 1 and page.locator(".additionalMaterialContents").count() == 1,
           str(page.locator(".additionalMaterialButton").count()))
     # Built archives: left-out files in the contents, one-file material offered as the file.
-    season_c = item_id(admin_token, "Season", "/media/training/Course C/Season 1")
-    lesson_c1 = item_id(admin_token, "Episode", "/media/training/Course C/Season 1/S01E01 - Build Lesson.mp4")
+    season_c = item_id(admin_token, "Season", spath("training/Course C/Season 1"))
+    lesson_c1 = item_id(admin_token, "Episode", spath("training/Course C/Season 1/S01E01 - Build Lesson.mp4"))
     open_details(page, season_c)
     try:
         page.locator(MAIN).wait_for(timeout=20000)
@@ -224,8 +224,14 @@ with sync_playwright() as p:
         # Jellyfin keeps earlier pages in the DOM, hidden: look only at the page on show.
         page.wait_for_selector(".page:not(.hide) .card .additionalMaterialIndicator", timeout=30000)
         check("grid card shows the indicator", True)
-        last = page.evaluate("() => { const i = document.querySelector('.page:not(.hide) .additionalMaterialIndicator'); return i.parentElement.classList.contains('cardIndicators') && i === i.parentElement.lastElementChild; }")
-        check("indicator is last in the card's top-right row", last)
+        # Jellyfin may redraw the cards between the wait above and this look: retry while it is gone.
+        last = None
+        for _ in range(20):
+            last = page.evaluate("() => { const i = document.querySelector('.page:not(.hide) .additionalMaterialIndicator'); return i ? i.parentElement.classList.contains('cardIndicators') && i === i.parentElement.lastElementChild : null; }")
+            if last is not None:
+                break
+            page.wait_for_timeout(250)
+        check("indicator is last in the card's top-right row", bool(last))
         before = page.url
         # Click where the pointer is, as a person would: the card's hover overlay covers the indicator,
         # and Playwright's locator.click() refuses covered elements.
