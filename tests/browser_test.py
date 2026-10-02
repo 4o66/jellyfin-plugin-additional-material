@@ -88,6 +88,9 @@ def open_details(page, item):
     page.wait_for_selector(".itemDetailPage:not(.hide) .mainDetailButtons", timeout=60000)
 
 
+PLUGIN_GUID = "10121f36-d2e1-4b8d-96c4-b2cc720880f3"
+
+
 with sync_playwright() as p:
     browser = p.chromium.launch()
 
@@ -184,12 +187,44 @@ with sync_playwright() as p:
     check("one download and one Contents button after returning to the course",
           page.locator(".additionalMaterialButton:not(.additionalMaterialContents)").count() == 1 and page.locator(".additionalMaterialContents").count() == 1,
           str(page.locator(".additionalMaterialButton").count()))
+    # Built archives: left-out files in the contents, one-file material offered as the file.
+    season_c = item_id(admin_token, "Season", "/media/training/Course C/Season 1")
+    lesson_c1 = item_id(admin_token, "Episode", "/media/training/Course C/Season 1/S01E01 - Build Lesson.mp4")
+    open_details(page, season_c)
+    try:
+        page.locator(MAIN).wait_for(timeout=20000)
+        page.locator(CONTENTS).click()
+        page.locator(".am-dialog").wait_for(timeout=10000)
+        page.locator(".am-dialog .am-archive").nth(0).locator(".am-contents-toggle").click()
+        page.locator(".am-dialog .am-leftout").first.wait_for(timeout=10000)
+        lo = page.locator(".am-dialog .am-leftout")
+        check("built archive: a left-out file is listed with its reason", "Bonus Resources.txt" in lo.inner_text() and "advert" in lo.inner_text(), lo.inner_text())
+        check("built archive: a left-out file has no download button", lo.locator("button.am-file-download").count() == 0)
+        page.screenshot(path="/t/screenshot-built-contents.png")
+        page.keyboard.press("Escape")
+    except Exception as e:  # noqa: BLE001
+        check("built archive: a left-out file is listed with its reason", False, str(e)[:120])
+    open_details(page, lesson_c1)
+    try:
+        page.locator(MAIN).wait_for(timeout=20000)
+        check("one-file lesson: the button names the PDF", "PDF" in (page.locator(MAIN).get_attribute("title") or ""), page.locator(MAIN).get_attribute("title"))
+        page.locator(MAIN).click()
+        page.locator(".am-download-all").wait_for(timeout=10000)
+        check("one-file lesson: Download names the file", "S01E01 - Build Lesson.pdf" in page.locator(".am-download-all").inner_text(), page.locator(".am-download-all").inner_text())
+        with page.expect_download(timeout=30000) as d:
+            page.locator(".am-download-all").click()
+        check("one-file lesson: downloads the PDF itself", d.value.suggested_filename == "S01E01 - Build Lesson.pdf", d.value.suggested_filename)
+        page.keyboard.press("Escape")
+    except Exception as e:  # noqa: BLE001
+        check("one-file lesson: the button names the PDF", False, str(e)[:120])
+
     # Grid: the training library's series cards
     page.goto(f"{BASE}/web/#/tv?topParentId={training}&serverId={server['Id']}")
     try:
-        page.wait_for_selector(".card .additionalMaterialIndicator", timeout=30000)
+        # Jellyfin keeps earlier pages in the DOM, hidden: look only at the page on show.
+        page.wait_for_selector(".page:not(.hide) .card .additionalMaterialIndicator", timeout=30000)
         check("grid card shows the indicator", True)
-        last = page.evaluate("() => { const i = document.querySelector('.additionalMaterialIndicator'); return i.parentElement.classList.contains('cardIndicators') && i === i.parentElement.lastElementChild; }")
+        last = page.evaluate("() => { const i = document.querySelector('.page:not(.hide) .additionalMaterialIndicator'); return i.parentElement.classList.contains('cardIndicators') && i === i.parentElement.lastElementChild; }")
         check("indicator is last in the card's top-right row", last)
         before = page.url
         # Click where the pointer is, as a person would: the card's hover overlay covers the indicator,
@@ -291,16 +326,67 @@ with sync_playwright() as p:
         check("dashboard sidebar lists the plugin", False, str(e)[:120])
     page.screenshot(path="/t/screenshot-dashboard.png")
     page.goto(f"{BASE}/web/#/configurationpage?name=Additional%20Material")
+    cfgpage = "#AdditionalMaterialConfigPage"
+    def section(name):
+        page.locator(f'{cfgpage} .am-nav button[data-section="{name}"]').click()
     try:
-        page.locator("#amPreview svg").wait_for(timeout=30000)
-        check("settings page shows the icon preview", True)
+        page.locator(f"{cfgpage} .am-nav").wait_for(timeout=30000)
+        page.wait_for_function("() => document.querySelectorAll('#amLibraries input').length > 0", timeout=30000)
+        check("settings page shows its sections", page.locator(f"{cfgpage} .am-nav button").count() == 6)
+        section("general")
         check("settings page lists the libraries", page.locator("#amLibraries input").count() == 2)
+        check("only one section shows at a time", page.locator(f"{cfgpage} .am-section:not([hidden])").count() == 1)
+        section("appearance")
+        page.locator("#amPreview svg").wait_for(timeout=10000)
+        check("settings page shows the icon preview", page.locator("#amPreview svg").is_visible())
+        check("libraries are hidden on the Appearance section", not page.locator("#amLibraries").is_visible())
+        check("accent shows the saved color", page.locator("#amAccent").input_value().lower() == "#db781b", page.locator("#amAccent").input_value())
+        check("no unsaved-changes marker before a change", page.locator("#amSaveState").inner_text().strip() == "")
+        page.locator("#amAccentReset").click()
+        check("Reset to default sets Jellyfin's accent", page.locator("#amAccent").input_value().lower() == "#00a4dc", page.locator("#amAccent").input_value())
+        check("Reset to default is disabled once at the default", page.locator("#amAccentReset").is_disabled())
+        preview_color = page.evaluate("() => document.querySelector('#amPreview').style.getPropertyValue('--am-accent')")
+        check("preview follows the reset", preview_color.lower() == "#00a4dc", preview_color)
+        check("a change shows the unsaved-changes marker", "Unsaved" in page.locator("#amSaveState").inner_text())
+        page.locator("label:has(#amCards)").click()
+        page.locator(f"{cfgpage} .am-footer .button-submit").click()
+        page.wait_for_function("() => /^Settings saved/.test(document.querySelector('#amSaveState').textContent.trim())", timeout=15000)
+        check("Save confirms and clears the marker", "Unsaved" not in page.locator("#amSaveState").inner_text())
+        saved = api(f"/Plugins/{PLUGIN_GUID}/Configuration", admin_token)
+        check("Save stores every section's fields", saved.get("AccentColor", "").upper() == "#00A4DC" and saved.get("ShowOnCards") is False,
+              f"{saved.get('AccentColor')} {saved.get('ShowOnCards')}")
+        page.locator("label:has(#amCards)").click()
+        page.locator("#amAccent").fill("#db781b")
+        page.locator(f"{cfgpage} .am-footer .button-submit").click()
+        page.wait_for_function("() => /^Settings saved/.test(document.querySelector('#amSaveState').textContent.trim())", timeout=15000)
+        section("contents")
+        check("settings page has the nested-zip setting, on", page.locator("#amNested").is_checked())
+        section("building")
+        check("Building section shows building on (set by the server test)", page.locator("#amBuild").is_checked())
+        check("Building section: location choice", page.locator("input[name=amLocation]:checked").get_attribute("value") == "beside")
+        check("Building section: one-file threshold", page.locator("#amSingleMB").input_value() == "100", page.locator("#amSingleMB").input_value())
+        section("tools")
+        page.wait_for_function("() => /archives planned/.test(document.querySelector('#amBuildStatus').textContent)", timeout=30000)
+        check("Tools shows the build status", True)
         page.locator("#amReread").click()
         page.wait_for_function("() => /Indexed \\d+ folders, \\d+ zips/.test(document.querySelector('#amIndexStatus').textContent)", timeout=30000)
         check("Re-read folders runs and reports the result", True)
-        check("settings page has the nested-zip setting, on", page.locator("#amNested").is_checked())
+        check("tools need no Save", page.locator("#amSaveState").inner_text().strip() == "" or "saved" in page.locator("#amSaveState").inner_text().lower())
+        section("about")
+        page.wait_for_function("() => /Version \\d/.test(document.querySelector('#amVersion').textContent)", timeout=15000)
+        check("About shows the installed version", True)
+        page.screenshot(path="/t/screenshot-settings.png", full_page=True)
+        page.reload()
+        page.locator(f"{cfgpage} .am-nav").wait_for(timeout=30000)
+        check("the open section is remembered", page.locator(f'{cfgpage} .am-nav button[aria-selected="true"]').get_attribute("data-section") == "about")
+        page.set_viewport_size({"width": 400, "height": 800})
+        section("appearance")
+        wide = page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1")
+        check("settings fit a phone-width screen", wide)
+        page.screenshot(path="/t/screenshot-settings-phone.png", full_page=True)
+        page.set_viewport_size({"width": 1280, "height": 800})
     except Exception as e:  # noqa: BLE001
-        check("settings page shows the icon preview", False, str(e)[:120])
+        check("settings page shows the icon preview", False, str(e)[:160])
     page.screenshot(path="/t/screenshot-settings.png", full_page=True)
     ctx.close()
 

@@ -13,7 +13,11 @@ namespace Jellyfin.Plugin.AdditionalMaterial.Services;
 /// <param name="FileName">File name offered to the browser.</param>
 /// <param name="Size">Size in bytes.</param>
 /// <param name="Format">Always <c>zip</c> in this version.</param>
-public sealed record MaterialFile(string FullPath, string FileName, long Size, string Format);
+public sealed record MaterialFile(string FullPath, string FileName, long Size, string Format)
+{
+    /// <summary>Gets the plan when the plugin builds this archive (it may not exist yet); <c>null</c> for an archive made by hand or by the script.</summary>
+    public PlanEntry? Plan { get; init; }
+}
 
 /// <summary>
 /// Finds the material archive for an item by file name. The client only ever sends an item ID;
@@ -38,16 +42,22 @@ public sealed class MaterialLocator
 
     private readonly ILibraryManager _libraryManager;
     private readonly MaterialIndex _index;
+    private readonly ArchivePlans _plans;
+    private readonly BuiltRegistry _registry;
     private readonly ILogger<MaterialLocator> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="MaterialLocator"/> class.</summary>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="index">The folder index.</param>
+    /// <param name="plans">Archives the plugin builds.</param>
+    /// <param name="registry">Archives the plugin has built.</param>
     /// <param name="logger">Logger.</param>
-    public MaterialLocator(ILibraryManager libraryManager, MaterialIndex index, ILogger<MaterialLocator> logger)
+    public MaterialLocator(ILibraryManager libraryManager, MaterialIndex index, ArchivePlans plans, BuiltRegistry registry, ILogger<MaterialLocator> logger)
     {
         _libraryManager = libraryManager;
         _index = index;
+        _plans = plans;
+        _registry = registry;
         _logger = logger;
     }
 
@@ -114,9 +124,27 @@ public sealed class MaterialLocator
             }
         }
 
-        if (zip is null)
+        // An archive the plugin built is handled through its plan (rebuilt when its files change),
+        // unless building has been turned off: then it is served as it is, like any other archive.
+        var ours = zip is not null && Plugin.Instance?.Configuration.BuildArchives == true && _registry.Owns(Path.GetFullPath(Path.Combine(directory, zip.Name)));
+        if (zip is null || ours)
         {
-            return null;
+            // No archive made by hand or by the script: one the plugin builds (or built), if planned.
+            var planned = Path.GetFullPath(Path.Combine(directory, baseName + _extensions[0]));
+            var plan = _plans.Get(planned);
+            if (plan is null || !InsideLibrary(planned, libraries, verify ? MaterialIndex.ReadIsLinkedFolder : _index.IsLinkedFolder))
+            {
+                return null;
+            }
+
+            // Material that is one file is handed out as that file: say so, with its own name and size.
+            if (plan.SingleFile() is { } single)
+            {
+                var ext = Path.GetExtension(single).TrimStart('.').ToLowerInvariant();
+                return new MaterialFile(planned, Path.GetFileName(single), new FileInfo(single).Length, ext.Length > 0 ? ext : "file") { Plan = plan };
+            }
+
+            return new MaterialFile(planned, Path.GetFileName(planned), plan.EstimatedSize, "zip") { Plan = plan };
         }
 
         var candidate = Path.Combine(directory, zip.Name);

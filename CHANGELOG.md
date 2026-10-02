@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.5.0 (2026-10-02)
+
+- **The plugin can build archives itself** (Settings → Building, off by default), with the helper
+  script's rules: icons and contents show at once, archives are built in the background after
+  scans or on first download, beside the videos (the plugin's cache where that folder cannot be
+  written, or always the cache), rebuilt when their files change, removed when no longer needed.
+  Courses that already have archives the plugin did not build are left as they are.
+- One-file material is handed out as that file, unless large (100 MB) and compressible: a sample
+  is compressed to decide, and formats that are compressed already are never zipped.
+- Each file in a built archive is stored or deflated depending on whether compressing it pays.
+- The contents view lists files a rule left out, with the reason (everyone, admins only, or nobody).
+- Tools → **Rebuild built archives**.
+- The planner is a C# port of the helper script's, held to identical results by CI; it reads the
+  same rule files, with Tomlyn (BSD-2-Clause), now shipped beside the plugin's DLL. On a real
+  library: 9 courses, 242 archives, 307 files, 284 skips, no differences.
+- Helper script: an archive 7z cannot read (corrupt, or with an encrypted listing) is now replaced
+  by a note, like any content that cannot be checked; it used to be included.
+
+## 1.4.0 (2026-10-02)
+
+- **Settings, reorganized** (modeled on Intro Skipper's): sections in a sidebar (General,
+  Appearance, Contents, Tools, About), one shown at a time; on narrow screens the sections become
+  tabs. One Save bar stays at the bottom and shows when there are unsaved changes. The open
+  section is remembered.
+- **Reset to default** for the accent color (back to Jellyfin's `#00A4DC`).
+- About: the installed version, links, and the repository address with a Copy button.
+- README: installing now covers both repositories (this one and File Transformation's).
+
 ## 1.3.0 (2026-10-02)
 
 - **Contents view.** A lesson's button now opens a file tree of its archive, with a Download

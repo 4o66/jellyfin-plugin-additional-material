@@ -59,11 +59,24 @@ mk "$T/Season 1" "S01E02 - Lesson Two.material.7z"           # .7z is not recogn
 ln -s /etc/hostname "$T/Season 2/S02E01 - Sneaky.material.zip"  # link escaping the library: refused
 mk "$WORK/media/other/Course B" additional-material.zip      # library not enabled: ignored
 mk "$WORK/media/outside/Season 3" "S03E01 - Linked.material.zip"  # reached only through the folder link: refused
+# Course C has no archives at all: the plugin builds them when building is on.
+TC="$WORK/media/training/Course C"; mkdir -p "$TC/Season 1"
+cp "$T/Season 1/S01E01 - Lesson One.mp4" "$TC/Season 1/S01E01 - Build Lesson.mp4"
+cp "$T/Season 1/S01E01 - Lesson One.mp4" "$TC/Season 1/S01E02 - Two Files.mp4"
+printf '%%PDF-1.4\nlesson one handout\n' > "$TC/Season 1/S01E01 - Build Lesson.pdf"     # one file: handed out as is
+echo "lesson two notes" > "$TC/Season 1/S01E02 - Two Files.txt"
+printf 'PK\003\004 macro document' > "$TC/Season 1/S01E02 - Two Files.docm"         # replaced by a note
+echo "section notes" > "$TC/Season 1/notes.txt"; echo "# slides" > "$TC/Season 1/section-slides.md"
+printf 'https://freecourseweb.com\nhttps://devcourseweb.com\n' > "$TC/Season 1/Bonus Resources.txt"   # advert: left out
+echo "course readme" > "$TC/readme.txt"
+TD="$WORK/media/training/Course D"; mkdir -p "$TD/Season 1"     # mounted read-only in the server: built archives go to the cache
+cp "$T/Season 1/S01E01 - Lesson One.mp4" "$TD/Season 1/S01E01 - Read Only.mp4"
+echo "read-only notes" > "$TD/Season 1/S01E01 - Read Only.txt"; echo "more" > "$TD/Season 1/S01E01 - Read Only.md"
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.3.0.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.3.0.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.5.0.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$OUT/Tomlyn.dll" "$WORK/config/plugins/Additional Material_1.5.0.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 # A signing key left readable by others (as 1.2.2 and earlier wrote it on Windows) must be replaced.
 KEYFILE="$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/signing.key"
@@ -71,7 +84,8 @@ mkdir -p "${KEYFILE%/*}"; head -c 32 /dev/urandom > "$KEYFILE"; chmod 644 "$KEYF
 SEEDSUM=$(sha256sum < "$KEYFILE" | cut -c1-64)
 
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8096" \
-  -v "$WORK/config:/config" -v "$WORK/cache:/cache" -v "$WORK/media:/media:ro" "$IMAGE" >/dev/null
+  -v "$WORK/config:/config" -v "$WORK/cache:/cache" -v "$WORK/media:/media" \
+  -v "$WORK/media/training/Course D:/media/training/Course D:ro" "$IMAGE" >/dev/null   # Course D: a folder the server cannot write
 for _ in $(seq 1 90); do [[ $(curl -s "$BASE/health") == Healthy ]] && break; sleep 2; done
 check "server healthy" "$(curl -s "$BASE/health")" Healthy
 
@@ -97,9 +111,9 @@ done
 curl "${A[@]}" -X POST "$BASE/Library/Refresh" >/dev/null
 for _ in $(seq 1 60); do
   n=$(curl "${A[@]}" "$BASE/Items?Recursive=true&IncludeItemTypes=Episode" | jq -r '.TotalRecordCount // 0')
-  [[ $n -ge 5 ]] && break; sleep 2
+  [[ $n -ge 8 ]] && break; sleep 2
 done
-check "library scanned (episodes)" "$n" 5
+check "library scanned (episodes)" "$n" 8
 
 lib_id() { curl "${A[@]}" "$BASE/Library/VirtualFolders" | jq -r --arg n "$1" '.[] | select(.Name==$n) | .ItemId'; }
 TRAINING=$(lib_id training); OTHER=$(lib_id other)
@@ -251,6 +265,75 @@ check "stale entry re-checked in the background" "$(info "$ADMIN" "$E1" | jq -r 
 mv "$WORK/held.zip" "$L1"; rm "$L2"
 cfg '.IndexRefreshMinutes=10'; refresh >/dev/null
 check "index restored" "$(info "$ADMIN" "$E1" | jq -r '.Available') $(info "$ADMIN" "$E2" | jq -r '.Available')" "true false"
+
+# ---- building archives ------------------------------------------------------------------
+EC1=$(item Episode "/media/training/Course C/Season 1/S01E01 - Build Lesson.mp4")
+EC2=$(item Episode "/media/training/Course C/Season 1/S01E02 - Two Files.mp4")
+SEASONC=$(item Season "/media/training/Course C/Season 1"); SERIESC=$(item Series "/media/training/Course C")
+for v in EC1 EC2 SEASONC SERIESC; do [[ -n ${!v} ]] || bad "test item $v not found"; done
+check "building off: nothing offered for a course without archives" "$(info "$ADMIN" "$EC1" | jq -r .Available)" false
+bstat() { as "$ADMIN" "$BASE/AdditionalMaterial/Build/Status"; }
+wait_planned() { for _ in $(seq 60); do local st; st=$(bstat); [[ $(jq -r .Running <<<"$st") == false && $(jq -r .Planned <<<"$st") -gt 0 ]] && return; sleep 1; done; }
+cfg '.BuildArchives=true | .BuildInBackground=false | .BuiltArchiveLocation="beside" | .ShowLeftOutFiles="everyone"'
+as "$ADMIN" -o /dev/null -X POST "$BASE/AdditionalMaterial/Index/Refresh"; sleep 2; wait_planned
+check "building on: archives planned" "$( [[ $(bstat | jq -r .Planned) -ge 3 ]] && echo yes)" yes
+check "a course with its own archives is left alone" "$( [[ $(bstat | jq -r .CoursesLeftAlone) -ge 1 ]] && echo yes)" yes
+check "left alone: no archive invented for Course A's Lesson Two" "$(info "$ADMIN" "$E2" | jq -r .Available)" false
+check "one-file material: offered as the file itself" "$(info "$ADMIN" "$EC1" | jq -c '[.FileName,.Format]')" '["S01E01 - Build Lesson.pdf","pdf"]'
+check "nothing written before a download" "$(ls "$TC/Season 1" | grep -c 'material.zip$')" 0
+TC1=$(as "$ADMIN" -X POST "$BASE/AdditionalMaterial/Items/$EC1/Link" | jq -r .Token)
+curl -s -D "$WORK/hc" -o "$WORK/gotc" "$BASE/AdditionalMaterial/Download/$TC1"
+check "one-file download: the original file" "$(sha256sum < "$WORK/gotc" | cut -c1-64)" "$(sha256sum < "$TC/Season 1/S01E01 - Build Lesson.pdf" | cut -c1-64)"
+grep -qi 'filename="\?S01E01 - Build Lesson.pdf' "$WORK/hc" && ok "one-file download: under its own name" || bad "one-file download: under its own name ($(grep -i '^content-disposition' "$WORK/hc" | tr -d '\r'))"
+check "planned lesson archive offered" "$(info "$ADMIN" "$EC2" | jq -r .FileName)" "S01E02 - Two Files.material.zip"
+check "planned contents: files, the macro document as a note" "$(cont "$ADMIN" "$EC2" | jq -c '[.Entries[] | select(.LeftOut|not) | .Path] | sort')" '["S01E02 - Two Files.docm.REMOVED.txt","S01E02 - Two Files.txt"]'
+check "planned contents: the removal reason" "$(cont "$ADMIN" "$EC2" | jq -r '.Entries[] | select(.Path|endswith(".REMOVED.txt")) | .Reason')" ".docm files are executable or script content"
+check "section: its file and the left-out advert" "$(cont "$ADMIN" "$SEASONC" | jq -c '[.Entries[] | [.Path, .LeftOut]]')" '[["notes.txt",false],["section-slides.md",false],["Bonus Resources.txt",true]]'
+check "left-out files carry the rule's reason" "$(cont "$ADMIN" "$SEASONC" | jq -r '.Entries[] | select(.LeftOut) | .Reason')" "link-only text file (advert) [rule link-only-text]"
+cfg '.ShowLeftOutFiles="admins"'
+check "left-out files: admins only (reader)" "$(cont "$READER" "$SEASONC" | jq '[.Entries[] | select(.LeftOut)] | length')" 0
+check "left-out files: admins only (admin)"  "$(cont "$ADMIN" "$SEASONC" | jq '[.Entries[] | select(.LeftOut)] | length')" 1
+cfg '.ShowLeftOutFiles="nobody"'
+check "left-out files: nobody" "$(cont "$ADMIN" "$SEASONC" | jq '[.Entries[] | select(.LeftOut)] | length')" 0
+cfg '.ShowLeftOutFiles="everyone"'
+check "course: the readme" "$(cont "$ADMIN" "$SERIESC" | jq -c '[.Entries[].Path]')" '["readme.txt"]'
+TC2=$(as "$ADMIN" -X POST "$BASE/AdditionalMaterial/Items/$EC2/Link" | jq -r .Token)
+ZC="$TC/Season 1/S01E02 - Two Files.material.zip"
+curl -s -o "$WORK/zc1" "$BASE/AdditionalMaterial/Download/$TC2"
+check "first download builds the archive beside the video" "$( [[ -f $ZC ]] && echo yes)" yes
+check "download is the built archive" "$(sha256sum < "$WORK/zc1" | cut -c1-64)" "$(sha256sum < "$ZC" | cut -c1-64)"
+check "built archive: entry names" "$(7z l -ba -slt "$ZC" | sed -n 's/^Path = //p' | sort | tr '\n' '|')" "S01E02 - Two Files.docm.REMOVED.txt|S01E02 - Two Files.txt|"
+7z e -so "$ZC" "S01E02 - Two Files.docm.REMOVED.txt" 2>/dev/null | grep -q '^REMOVED: S01E02 - Two Files.docm' && ok "built archive: the note, as the script writes it" || bad "built archive: the note"
+m1=$(stat -c %Y "$ZC"); sleep 1; curl -s -o "$WORK/zc2" "$BASE/AdditionalMaterial/Download/$TC2"
+check "second download: not rebuilt" "$(stat -c %Y "$ZC")" "$m1"
+check "entry download from a built archive: the original file" "$(curl -s "$BASE/AdditionalMaterial/Download/$TC2?entry=S01E02%20-%20Two%20Files.txt")" "lesson two notes"
+curl -s "$BASE/AdditionalMaterial/Download/$TC2?entry=S01E02%20-%20Two%20Files.docm.REMOVED.txt" | grep -q '^REMOVED: ' && ok "entry download: the note for a removed file" || bad "entry download: the note for a removed file"
+check "entry download: a left-out file is not served" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TC2?entry=Bonus%20Resources.txt")" 404
+echo "lesson two notes, revised" > "$TC/Season 1/S01E02 - Two Files.txt"; sleep 1
+curl -s -o /dev/null "$BASE/AdditionalMaterial/Download/$TC2"
+check "changed file: archive rebuilt" "$(7z e -so "$ZC" "S01E02 - Two Files.txt" 2>/dev/null)" "lesson two notes, revised"
+ED1=$(item Episode "/media/training/Course D/Season 1/S01E01 - Read Only.mp4")
+TD1=$(as "$ADMIN" -X POST "$BASE/AdditionalMaterial/Items/$ED1/Link" | jq -r .Token)
+check "folder the server cannot write: still downloads" "$(curl -s -o "$WORK/zd" -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TD1")" 200
+check "folder the server cannot write: built in the cache" "$(7z l -ba -slt "$WORK/zd" | sed -n 's/^Path = //p' | sort | tr '\n' '|')" "S01E01 - Read Only.md|S01E01 - Read Only.txt|"
+check "folder the server cannot write: nothing written there" "$(ls "$TD/Season 1" | grep -c 'zip$')" 0
+check "rebuild: readers refused" "$(as "$READER" -o /dev/null -w '%{http_code}' -X POST "$BASE/AdditionalMaterial/Build/Rebuild")" 403
+cfg '.BuiltArchiveLocation="cache"'
+as "$ADMIN" -o /dev/null -X POST "$BASE/AdditionalMaterial/Build/Rebuild"; sleep 1
+for _ in $(seq 60); do [[ $(bstat | jq -r .Running) == false ]] && break; sleep 1; done
+check "cache location: the copy beside the video is removed" "$( [[ -f $ZC ]] && echo yes || echo no)" no
+check "cache location: still downloads" "$(curl -s "$BASE/AdditionalMaterial/Download/$TC2" -o "$WORK/zc3" -w '%{http_code}')" 200
+check "cache location: the media folder holds no built archives" "$(ls "$TC" "$TC/Season 1" | grep -c 'material.zip$\|additional-material.zip$')" 0
+cfg '.BuiltArchiveLocation="beside" | .BuildInBackground=true'
+as "$ADMIN" -o /dev/null -X POST "$BASE/AdditionalMaterial/Index/Refresh"; sleep 2
+for _ in $(seq 90); do st=$(bstat); [[ $(jq -r .Running <<<"$st") == false && $(jq -r .UpToDate <<<"$st") == $(jq -r .Planned <<<"$st") ]] && break; sleep 1; done
+check "background: every planned archive built" "$(bstat | jq -c '[.Planned == .UpToDate, .Failed]')" '[true,0]'
+check "background: section archive beside its videos" "$( [[ -f "$TC/Season 1/additional-material.zip" ]] && echo yes)" yes
+check "background: no archive for one-file material (lesson, course)" "$( [[ -f "$TC/Season 1/S01E01 - Build Lesson.material.zip" || -f "$TC/additional-material.zip" ]] && echo yes || echo no)" no
+check "background: only the unwritable folder's archive stays cached" "$(ls "$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/archives" 2>/dev/null | wc -l | tr -d ' ')" 1
+cfg '.BuildArchives=false'
+check "building off: built archives still served as they are" "$(info "$ADMIN" "$EC2" | jq -r .FileName)" "S01E02 - Two Files.material.zip"
+cfg '.BuildArchives=true'
 
 # ---- web client ----------------------------------------------------------------
 check "script served" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/web/additional-material.js")" 200

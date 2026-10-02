@@ -182,6 +182,31 @@ class CourseLayout(unittest.TestCase):
         self.assertFalse((self.section / "additional-material.zip").exists())
 
 
+class UnreadableArchives(unittest.TestCase):
+    def test_archive_7z_cannot_read_is_replaced_by_a_note(self):
+        """With a 7z program that fails to read an archive (corrupt, encrypted listing), the archive
+        cannot be checked, so it is left out like any other unchecked content."""
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t)
+            fake = t / "bin" / "7z"
+            fake.parent.mkdir()
+            fake.write_text("#!/bin/sh\necho 'ERROR: cannot open' >&2\nexit 2\n")
+            fake.chmod(0o755)
+            course = t / "Course"
+            touch(course / "1 - Lesson.mp4")
+            touch(course / "labs.7z", b"7z\xbc\xaf\x27\x1c broken")
+            old = os.environ["PATH"]
+            os.environ["PATH"] = f"{fake.parent}{os.pathsep}{old}"
+            try:
+                code, _, report = run(str(course), "--mode", "course")
+            finally:
+                os.environ["PATH"] = old
+            self.assertEqual(code, 0)
+            removed = [r for c in report["courses"] for a in c["archives"] for r in a["removed"]]
+            self.assertEqual([Path(r["file"]).name for r in removed], ["labs.7z"])
+            self.assertIn("could not be checked", removed[0]["reason"])
+
+
 class LibraryDetection(unittest.TestCase):
     def test_library_and_course_shapes(self):
         with tempfile.TemporaryDirectory() as tmp:

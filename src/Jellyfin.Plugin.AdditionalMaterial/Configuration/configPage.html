@@ -6,120 +6,272 @@
 </head>
 <body>
     <div id="AdditionalMaterialConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+        <style>
+            /* Laid out like Intro Skipper's settings: sections in a sidebar, one shown at a time,
+               and a save bar that stays at the bottom. Colors follow the dashboard theme. */
+            #AdditionalMaterialConfigPage .am-shell { display: grid; grid-template-columns: minmax(10em, 13em) minmax(0, 1fr); gap: 0 2em; align-items: start; }
+            #AdditionalMaterialConfigPage .am-header { grid-column: 1 / -1; margin-bottom: 1em; }
+            #AdditionalMaterialConfigPage .am-header h2 { margin: 0 0 .2em; }
+            #AdditionalMaterialConfigPage .am-header p { margin: 0; opacity: .75; }
+            #AdditionalMaterialConfigPage .am-nav { position: sticky; top: 1em; display: flex; flex-direction: column; gap: .15em; }
+            #AdditionalMaterialConfigPage .am-nav button { all: unset; cursor: pointer; padding: .6em .9em; border-radius: .35em; border-left: 3px solid transparent; opacity: .8; }
+            #AdditionalMaterialConfigPage .am-nav button:hover, #AdditionalMaterialConfigPage .am-nav button:focus-visible { background: rgba(128, 128, 128, .15); opacity: 1; }
+            #AdditionalMaterialConfigPage .am-nav button[aria-selected="true"] { border-left-color: #00a4dc; background: rgba(0, 164, 220, .12); opacity: 1; font-weight: 600; }
+            #AdditionalMaterialConfigPage .am-section h3.sectionTitle { margin-top: 0; }
+            #AdditionalMaterialConfigPage .am-section .verticalSection + .verticalSection { margin-top: 1.6em; }
+            #AdditionalMaterialConfigPage .am-footer { grid-column: 1 / -1; position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: flex-end; gap: 1em; margin-top: 2em; padding: .8em 1em; border-radius: .4em .4em 0 0; background: rgba(128, 128, 128, .14); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border-top: 1px solid rgba(128, 128, 128, .25); }
+            #AdditionalMaterialConfigPage .am-footer .button-submit { width: auto; min-width: 8em; margin: 0; justify-content: center; text-align: center; }
+            #AdditionalMaterialConfigPage .am-dirty { color: #f0ad4e; }
+            #AdditionalMaterialConfigPage .am-saved { color: #52b54b; }
+            #AdditionalMaterialConfigPage .am-accent-row { display: flex; align-items: center; gap: .8em; flex-wrap: wrap; }
+            #AdditionalMaterialConfigPage .am-code { font-family: monospace; overflow-wrap: anywhere; padding: .5em .7em; border-radius: .3em; background: rgba(128, 128, 128, .15); }
+            @media (max-width: 50em) {
+                #AdditionalMaterialConfigPage .am-shell { grid-template-columns: minmax(0, 1fr); }
+                #AdditionalMaterialConfigPage .am-nav { position: static; flex-direction: row; overflow-x: auto; margin-bottom: 1em; }
+                #AdditionalMaterialConfigPage .am-nav button { border-left: none; border-bottom: 3px solid transparent; white-space: nowrap; }
+                #AdditionalMaterialConfigPage .am-nav button[aria-selected="true"] { border-bottom-color: #00a4dc; }
+            }
+        </style>
         <div data-role="content">
             <div class="content-primary">
-                <form id="AdditionalMaterialConfigForm">
-                    <div class="verticalSection">
+                <form id="AdditionalMaterialConfigForm" class="am-shell">
+                    <header class="am-header">
                         <h2 class="sectionTitle" data-i18n="config.title">Additional Material</h2>
-                        <p data-i18n="config.intro">Offers a download button on items that have an archive stored beside them:</p>
-                        <ul>
-                            <li data-i18n="config.folderArchive">additional-material.zip in a series (course) or season (section) folder</li>
-                            <li data-i18n="config.videoArchive">&lt;video file name&gt;.material.zip beside an episode (lesson) or movie</li>
-                        </ul>
-                    </div>
+                        <p data-i18n="config.tagline">Download buttons and a contents view for course material stored beside your videos.</p>
+                    </header>
 
-                    <div class="verticalSection">
-                        <h3 class="sectionTitle" data-i18n="config.libraries">Libraries</h3>
-                        <div class="fieldDescription" data-i18n="config.librariesHelp">The plugin only looks in the libraries ticked here.</div>
-                        <div id="amLibraries" class="checkboxList paperList" style="padding: 0.5em 1em;"></div>
-                    </div>
+                    <nav class="am-nav" role="tablist" aria-label="Settings sections">
+                        <button type="button" role="tab" data-section="general" data-i18n="config.nav.general">General</button>
+                        <button type="button" role="tab" data-section="appearance" data-i18n="config.nav.appearance">Appearance</button>
+                        <button type="button" role="tab" data-section="contents" data-i18n="config.nav.contents">Contents</button>
+                        <button type="button" role="tab" data-section="building" data-i18n="config.nav.building">Building</button>
+                        <button type="button" role="tab" data-section="tools" data-i18n="config.nav.tools">Tools</button>
+                        <button type="button" role="tab" data-section="about" data-i18n="config.nav.about">About</button>
+                    </nav>
 
-                    <div class="verticalSection">
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="amRequireDownload" type="checkbox" is="emby-checkbox" />
-                                <span data-i18n="config.requireDownload">Require the "Allow media downloading" permission</span>
-                            </label>
-                            <div class="fieldDescription checkboxFieldDescription" data-i18n="config.requireDownloadHelp">Users without it see the button disabled. This is the permission Jellyfin's own Download button uses.</div>
-                        </div>
-                        <div class="inputContainer">
-                            <input id="amLinkMinutes" type="number" is="emby-input" min="1" max="1440" label="Download link lifetime (minutes)" data-i18n-label="config.linkMinutes" />
-                            <div class="fieldDescription" data-i18n="config.linkMinutesHelp">How long a download has to start after the button is pressed.</div>
-                        </div>
-                    </div>
+                    <div class="am-sections">
+                        <!-- General -->
+                        <section class="am-section" data-section="general" role="tabpanel">
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.libraries">Libraries</h3>
+                                <div class="fieldDescription" data-i18n="config.librariesHelp">The plugin only looks in the libraries ticked here.</div>
+                                <div id="amLibraries" class="checkboxList paperList" style="padding: 0.5em 1em;"></div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.downloads">Downloads</h3>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amRequireDownload" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.requireDownload">Require the "Allow media downloading" permission</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.requireDownloadHelp">Users without it see the button disabled. This is the permission Jellyfin's own Download button uses.</div>
+                                </div>
+                                <div class="inputContainer">
+                                    <input id="amLinkMinutes" type="number" is="emby-input" min="1" max="1440" label="Download link lifetime (minutes)" data-i18n-label="config.linkMinutes" />
+                                    <div class="fieldDescription" data-i18n="config.linkMinutesHelp">How long a download has to start after the button is pressed.</div>
+                                </div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.howItFinds">Where material comes from</h3>
+                                <ul class="fieldDescription">
+                                    <li data-i18n="config.folderArchive">additional-material.zip in a series (course) or season (section) folder</li>
+                                    <li data-i18n="config.videoArchive">&lt;video file name&gt;.material.zip beside an episode (lesson) or movie</li>
+                                </ul>
+                            </div>
+                        </section>
 
-                    <div class="verticalSection">
-                        <h3 class="sectionTitle" data-i18n="config.levels">Show material from lower levels on</h3>
-                        <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
-                            <input type="radio" name="amLevels" value="item" />
-                            <span data-i18n="config.levelsItem">Only the item it belongs to</span>
-                        </label>
-                        <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
-                            <input type="radio" name="amLevels" value="section" />
-                            <span data-i18n="config.levelsSection">Its section too</span>
-                        </label>
-                        <label class="emby-checkbox-label" style="display:block;">
-                            <input type="radio" name="amLevels" value="all" />
-                            <span data-i18n="config.levelsAll">Its section and course</span>
-                        </label>
-                        <div class="fieldDescription" data-i18n="config.levelsHelp">On a course or section page, the button then lists the archives below it, with links to each lesson.</div>
-                        <div class="checkboxContainer" style="margin-top:1em;">
-                            <label class="emby-checkbox-label">
-                                <input id="amCards" type="checkbox" is="emby-checkbox" />
-                                <span data-i18n="config.cards">Show the icon on cards in grid views</span>
-                            </label>
-                        </div>
-                        <div class="checkboxContainer">
-                            <label class="emby-checkbox-label">
-                                <input id="amLists" type="checkbox" is="emby-checkbox" />
-                                <span data-i18n="config.lists">Show the icon on rows in list views</span>
-                            </label>
-                        </div>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="amNested" type="checkbox" is="emby-checkbox" />
-                                <span data-i18n="config.nested">List the files inside zips that are inside the material</span>
-                            </label>
-                            <div class="fieldDescription checkboxFieldDescription" data-i18n="config.nestedHelp">A zip inside an archive (for example a lab pack) can then be opened in the Contents view and its files downloaded one by one.</div>
-                        </div>
-                    </div>
-
-                    <div class="verticalSection">
-                        <h3 class="sectionTitle" data-i18n="config.buttonStyle">Button style</h3>
-                        <div style="display:flex; gap:1.5em; align-items:center; flex-wrap:wrap;">
-                            <div>
+                        <!-- Appearance -->
+                        <section class="am-section" data-section="appearance" role="tabpanel" hidden>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.levels">Show material from lower levels on</h3>
                                 <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
-                                    <input type="radio" name="amStyle" value="mono" />
-                                    <span data-i18n="config.styleMono">One color, like the buttons beside it</span>
+                                    <input type="radio" name="amLevels" value="item" />
+                                    <span data-i18n="config.levelsItem">Only the item it belongs to</span>
+                                </label>
+                                <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
+                                    <input type="radio" name="amLevels" value="section" />
+                                    <span data-i18n="config.levelsSection">Its section too</span>
                                 </label>
                                 <label class="emby-checkbox-label" style="display:block;">
-                                    <input type="radio" name="amStyle" value="color" />
-                                    <span data-i18n="config.styleColor">Two colors: the plus in an accent color</span>
+                                    <input type="radio" name="amLevels" value="all" />
+                                    <span data-i18n="config.levelsAll">Its section and course</span>
+                                </label>
+                                <div class="fieldDescription" data-i18n="config.levelsHelp">On a course or section page, the button then lists the archives below it, with links to each lesson.</div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.icons">Icons</h3>
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amCards" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.cards">Show the icon on cards in grid views</span>
+                                    </label>
+                                </div>
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amLists" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.lists">Show the icon on rows in list views</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.buttonStyle">Button style</h3>
+                                <div style="display:flex; gap:1.5em; align-items:center; flex-wrap:wrap;">
+                                    <div>
+                                        <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
+                                            <input type="radio" name="amStyle" value="mono" />
+                                            <span data-i18n="config.styleMono">One color, like the buttons beside it</span>
+                                        </label>
+                                        <label class="emby-checkbox-label" style="display:block;">
+                                            <input type="radio" name="amStyle" value="color" />
+                                            <span data-i18n="config.styleColor">Two colors: the plus in an accent color</span>
+                                        </label>
+                                    </div>
+                                    <span id="amPreview" style="font-size:48px; display:inline-flex; padding:.15em; border-radius:.2em; background:rgba(0,0,0,.25);"></span>
+                                </div>
+                                <div class="inputContainer" style="margin-top:1em;">
+                                    <div class="am-accent-row">
+                                        <label for="amAccent" data-i18n="config.accent">Accent color</label>
+                                        <input id="amAccent" type="color" value="#00A4DC" style="width:4em; height:2.2em;" />
+                                        <button is="emby-button" type="button" id="amAccentReset" class="raised emby-button">
+                                            <span data-i18n="config.accentReset">Reset to default</span>
+                                        </button>
+                                    </div>
+                                    <div class="fieldDescription" data-i18n="config.accentHelp">Used for the plus in the two-color style. Jellyfin's own accent is #00A4DC.</div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Contents -->
+                        <section class="am-section" data-section="contents" role="tabpanel" hidden>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.contentsView">Contents view</h3>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amNested" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.nested">List the files inside zips that are inside the material</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.nestedHelp">A zip inside an archive (for example a lab pack) can then be opened in the Contents view and its files downloaded one by one.</div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Building -->
+                        <section class="am-section" data-section="building" role="tabpanel" hidden>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.building">Build archives</h3>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amBuild" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.build">Build archives from the files stored with the videos</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.buildHelp">Uses the helper script's rules: lesson files go with their lesson, section and course files with their section and course, and programs, scripts and documents with macros or embedded code are replaced by a note. Courses that already have archives (made by hand or by the script) are left as they are.</div>
+                                </div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amBuildBg" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.buildBackground">Build in the background after library scans</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.buildBackgroundHelp">Otherwise an archive is built the first time someone downloads it. Archives are rebuilt when their files change.</div>
+                                </div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.location">Where built archives go</h3>
+                                <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
+                                    <input type="radio" name="amLocation" value="beside" />
+                                    <span data-i18n="config.locationBeside">Beside the videos (the plugin's cache where that folder cannot be written)</span>
+                                </label>
+                                <label class="emby-checkbox-label" style="display:block;">
+                                    <input type="radio" name="amLocation" value="cache" />
+                                    <span data-i18n="config.locationCache">Always in the plugin's cache: never write to the media folders</span>
                                 </label>
                             </div>
-                            <span id="amPreview" style="font-size:48px; display:inline-flex; padding:.15em; border-radius:.2em; background:rgba(0,0,0,.25);"></span>
-                        </div>
-                        <div class="inputContainer" style="margin-top:1em;">
-                            <label for="amAccent" data-i18n="config.accent">Accent color</label>
-                            <input id="amAccent" type="color" value="#00A4DC" style="width:4em; height:2.2em; vertical-align:middle; margin-left:.5em;" />
-                            <div class="fieldDescription" data-i18n="config.accentHelp">Used for the plus in the two-color style. Jellyfin's own accent is #00A4DC.</div>
-                        </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.single">One-file material</h3>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amSingle" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.singleFiles">Hand out a single file as it is, without an archive</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.singleFilesHelp">A lesson whose only material is one PDF downloads as that PDF.</div>
+                                </div>
+                                <div class="inputContainer">
+                                    <input id="amSingleMB" type="number" is="emby-input" min="1" max="100000" label="Zip a single file anyway from this size (MB)" data-i18n-label="config.singleZipFrom" />
+                                    <div class="fieldDescription" data-i18n="config.singleZipFromHelp">Only when zipping makes it noticeably smaller: the plugin checks a sample of the file, and never zips formats that are compressed already (images, Office files, video, zip).</div>
+                                </div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.leftOut">Files left out by a rule</h3>
+                                <div class="fieldDescription" data-i18n="config.leftOutHelp">Adverts, shortcuts and links pointing outside the library are left out of built archives. The contents view can list them, with the reason:</div>
+                                <label class="emby-checkbox-label" style="display:block; margin:.5em 0;">
+                                    <input type="radio" name="amLeftOut" value="everyone" />
+                                    <span data-i18n="config.leftOutEveryone">Show them to everyone</span>
+                                </label>
+                                <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
+                                    <input type="radio" name="amLeftOut" value="admins" />
+                                    <span data-i18n="config.leftOutAdmins">Show them to administrators only</span>
+                                </label>
+                                <label class="emby-checkbox-label" style="display:block;">
+                                    <input type="radio" name="amLeftOut" value="nobody" />
+                                    <span data-i18n="config.leftOutNobody">Don't show them</span>
+                                </label>
+                            </div>
+                        </section>
+
+                        <!-- Tools: these act at once and need no Save -->
+                        <section class="am-section" data-section="tools" role="tabpanel" hidden>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.index">Folder index</h3>
+                                <div class="fieldDescription" data-i18n="config.indexHelp">The plugin remembers which folders hold material, re-reading them after every library scan. Re-read now after adding or changing zips.</div>
+                                <div style="display:flex; gap:1em; align-items:center; flex-wrap:wrap; margin-top:.8em;">
+                                    <button is="emby-button" type="button" id="amReread" class="raised emby-button">
+                                        <span data-i18n="config.reread">Re-read folders</span>
+                                    </button>
+                                    <span id="amIndexStatus" class="fieldDescription" aria-live="polite"></span>
+                                </div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.built">Built archives</h3>
+                                <div class="fieldDescription" data-i18n="config.builtHelp">Rebuilds every archive the plugin builds, from the files on the disk now. Archives made by hand or by the script are never touched.</div>
+                                <div style="display:flex; gap:1em; align-items:center; flex-wrap:wrap; margin-top:.8em;">
+                                    <button is="emby-button" type="button" id="amRebuild" class="raised emby-button">
+                                        <span data-i18n="config.rebuild">Rebuild built archives</span>
+                                    </button>
+                                    <span id="amBuildStatus" class="fieldDescription" aria-live="polite"></span>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- About -->
+                        <section class="am-section" data-section="about" role="tabpanel" hidden>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.nav.about">About</h3>
+                                <p id="amVersion"></p>
+                                <p><a is="emby-linkbutton" class="button-link" href="https://github.com/4o66/jellyfin-plugin-additional-material" target="_blank" rel="noopener" data-i18n="config.aboutSource">Source code, documentation and issues</a></p>
+                                <p data-i18n="config.aboutRepository">Plugin repository, for Dashboard → Plugins → Repositories (name it 4o66):</p>
+                                <div class="am-accent-row">
+                                    <span class="am-code" id="amRepoUrl">https://raw.githubusercontent.com/4o66/JellyfinPluginManifest/main/manifest.json</span>
+                                    <button is="emby-button" type="button" id="amCopyRepo" class="raised emby-button"><span data-i18n="config.copy">Copy</span></button>
+                                </div>
+                                <p class="fieldDescription" data-i18n="config.aboutLicense">Free software under the GNU GPL, version 3.</p>
+                            </div>
+                        </section>
                     </div>
 
-                    <div class="verticalSection">
-                        <h3 class="sectionTitle" data-i18n="config.index">Folder index</h3>
-                        <div class="fieldDescription" data-i18n="config.indexHelp">The plugin remembers which folders hold material, re-reading them after every library scan. Re-read now after adding or changing zips.</div>
-                        <div style="display:flex; gap:1em; align-items:center; flex-wrap:wrap; margin-top:.8em;">
-                            <button is="emby-button" type="button" id="amReread" class="raised emby-button">
-                                <span data-i18n="config.reread">Re-read folders</span>
-                            </button>
-                            <span id="amIndexStatus" class="fieldDescription" aria-live="polite"></span>
-                        </div>
-                    </div>
-
-                    <div>
-                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                    <footer class="am-footer">
+                        <span id="amSaveState" aria-live="polite"></span>
+                        <button is="emby-button" type="submit" class="raised button-submit emby-button">
                             <span data-i18n="config.save">Save</span>
                         </button>
-                    </div>
+                    </footer>
                 </form>
             </div>
         </div>
-
         <script type="text/javascript">
             (function () {
                 var pluginId = '10121f36-d2e1-4b8d-96c4-b2cc720880f3';
+                var DEFAULT_ACCENT = '#00A4DC';
                 var page = document.querySelector('#AdditionalMaterialConfigPage');
+                var form = page.querySelector('#AdditionalMaterialConfigForm');
 
                 function normalize(id) {
                     return String(id || '').replace(/-/g, '').toLowerCase();
@@ -127,13 +279,102 @@
 
                 var ICON = '<mask id="__ID__" maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28"><rect x="-2" y="-2" width="28" height="28" fill="#fff"/><circle cx="17.6" cy="17.4" r="6.6" fill="#000"/></mask><g mask="url(#__ID__)"><path d="M9.17 6l2 2H20v10H4V6h5.17M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="currentColor" fill-rule="evenodd"/><polyline points="8.65,11.60 10.35,12.90 8.65,14.20 10.35,15.50 8.65,16.80" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="miter"/><rect x="8.0" y="8.0" width="3" height="3.1" rx="1.1" fill="currentColor"/></g><circle cx="17.6" cy="17.4" r="4.9" fill="none" stroke="var(--am-accent, currentColor)" stroke-width="1.7"/><path d="M15.3 17.4H19.900000000000002M17.6 15.099999999999998V19.7" stroke="var(--am-accent, currentColor)" stroke-width="1.7" fill="none"/>';
 
+                // Text set from script; replaced by the translation when one is loaded.
+                var text = {
+                    'config.rereading': 'Re-reading… {progress}%',
+                    'config.indexResult': 'Indexed {folders} folders, {zips} zips, in {seconds} s ({when}).',
+                    'config.indexNever': 'Not indexed yet.',
+                    'config.indexFailed': 'Could not reach the server.',
+                    'config.unsaved': '● Unsaved changes',
+                    'config.saved': 'Settings saved',
+                    'config.version': 'Version {version}',
+                    'config.copied': 'Copied',
+                    'config.building.running': 'Building\u2026 {progress}%',
+                    'config.building.off': 'Building is off (Building section).',
+                    'config.building.result': '{planned} archives planned, {current} built and up to date. {alone} courses have their own archives and are left as they are.',
+                    'config.building.failed': '{failed} could not be built; see the server log.'
+                };
+
+                function fill(key, values) {
+                    return (text[key] || key).replace(/\{(\w+)\}/g, function (m, k) { return values && k in values ? values[k] : m; });
+                }
+
+                // ---- sections ----
+                var SECTION_KEY = 'additionalMaterial.section';
+
+                function showSection(name) {
+                    var found = false;
+                    page.querySelectorAll('.am-section').forEach(function (s) {
+                        var on = s.dataset.section === name;
+                        s.hidden = !on;
+                        found = found || on;
+                    });
+                    if (!found) {
+                        return showSection('general');
+                    }
+                    page.querySelectorAll('.am-nav button').forEach(function (b) {
+                        b.setAttribute('aria-selected', b.dataset.section === name ? 'true' : 'false');
+                        b.tabIndex = b.dataset.section === name ? 0 : -1;
+                    });
+                    try { sessionStorage.setItem(SECTION_KEY, name); } catch (e) { /* not available */ }
+                }
+
+                page.querySelectorAll('.am-nav button').forEach(function (b) {
+                    b.addEventListener('click', function () { showSection(b.dataset.section); });
+                    b.addEventListener('keydown', function (e) {
+                        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') {
+                            return;
+                        }
+                        var all = Array.prototype.slice.call(page.querySelectorAll('.am-nav button'));
+                        var next = all[(all.indexOf(b) + (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : all.length - 1)) % all.length];
+                        e.preventDefault();
+                        next.focus();
+                        showSection(next.dataset.section);
+                    });
+                });
+
+                // ---- unsaved-changes marker ----
+                var dirty = false;
+
+                function setState(kind) {
+                    var out = page.querySelector('#amSaveState');
+                    out.className = kind === 'dirty' ? 'am-dirty' : kind === 'saved' ? 'am-saved' : '';
+                    out.textContent = kind === 'dirty' ? fill('config.unsaved') : kind === 'saved' ? fill('config.saved') : '';
+                }
+
+                function markDirty(e) {
+                    if (e && e.target && e.target.closest && e.target.closest('[data-section="tools"], [data-section="about"]')) {
+                        return;   // tools act at once; nothing to save
+                    }
+                    dirty = true;
+                    setState('dirty');
+                }
+
+                form.addEventListener('input', markDirty);
+                form.addEventListener('change', markDirty);
+
+                // ---- appearance ----
                 function preview() {
                     var color = page.querySelector('input[name=amStyle][value=color]').checked;
                     var el = page.querySelector('#amPreview');
                     el.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em">' + ICON.split('__ID__').join('am-cut-preview') + '</svg>';
                     el.style.setProperty('--am-accent', color ? page.querySelector('#amAccent').value : 'currentColor');
+                    var reset = page.querySelector('#amAccentReset');
+                    reset.disabled = page.querySelector('#amAccent').value.toLowerCase() === DEFAULT_ACCENT.toLowerCase();
                 }
 
+                page.querySelectorAll('input[name=amStyle], #amAccent').forEach(function (el) {
+                    el.addEventListener('input', preview);
+                    el.addEventListener('change', preview);
+                });
+
+                page.querySelector('#amAccentReset').addEventListener('click', function () {
+                    page.querySelector('#amAccent').value = DEFAULT_ACCENT.toLowerCase();
+                    preview();
+                    markDirty();
+                });
+
+                // ---- load / save ----
                 function render(config, folders) {
                     var enabled = (config.EnabledLibraryIds || []).map(normalize);
                     var list = page.querySelector('#amLibraries');
@@ -162,23 +403,56 @@
                     page.querySelector('#amCards').checked = config.ShowOnCards !== false;
                     page.querySelector('#amLists').checked = config.ShowInLists !== false;
                     page.querySelector('#amNested').checked = config.ListNestedZips !== false;
+                    page.querySelector('#amBuild').checked = config.BuildArchives === true;
+                    page.querySelector('#amBuildBg').checked = config.BuildInBackground !== false;
+                    page.querySelector('input[name=amLocation][value=' + (config.BuiltArchiveLocation === 'cache' ? 'cache' : 'beside') + ']').checked = true;
+                    page.querySelector('#amSingle').checked = config.ServeSingleFiles !== false;
+                    page.querySelector('#amSingleMB').value = config.SingleFileZipFromMegabytes || 100;
+                    var lo = ['everyone', 'admins', 'nobody'].indexOf(config.ShowLeftOutFiles) >= 0 ? config.ShowLeftOutFiles : 'everyone';
+                    page.querySelector('input[name=amLeftOut][value=' + lo + ']').checked = true;
                     page.querySelector('input[name=amStyle][value=' + style + ']').checked = true;
-                    page.querySelector('#amAccent').value = /^#[0-9A-Fa-f]{6}$/.test(config.AccentColor || '') ? config.AccentColor : '#00A4DC';
+                    page.querySelector('#amAccent').value = /^#[0-9A-Fa-f]{6}$/.test(config.AccentColor || '') ? config.AccentColor : DEFAULT_ACCENT;
                     preview();
                     page.querySelector('#amLinkMinutes').value = config.LinkLifetimeMinutes || 10;
+                    dirty = false;
+                    setState('');
                 }
 
-                var text = {
-                    'config.rereading': 'Re-reading\u2026 {progress}%',
-                    'config.indexResult': 'Indexed {folders} folders, {zips} zips, in {seconds} s ({when}).',
-                    'config.indexNever': 'Not indexed yet.',
-                    'config.indexFailed': 'Could not reach the server.'
-                };
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        config.EnabledLibraryIds = Array.prototype.map.call(
+                            page.querySelectorAll('#amLibraries input:checked'),
+                            function (input) { return input.dataset.libraryId; });
+                        config.RequireDownloadPermission = page.querySelector('#amRequireDownload').checked;
+                        config.LinkLifetimeMinutes = parseInt(page.querySelector('#amLinkMinutes').value, 10) || 10;
+                        config.ButtonStyle = page.querySelector('input[name=amStyle][value=color]').checked ? 'color' : 'mono';
+                        config.AccentColor = (page.querySelector('#amAccent').value || DEFAULT_ACCENT).toUpperCase();
+                        var lv = page.querySelector('input[name=amLevels]:checked');
+                        config.ShowOnParents = lv ? lv.value : 'all';
+                        config.ShowOnCards = page.querySelector('#amCards').checked;
+                        config.ShowInLists = page.querySelector('#amLists').checked;
+                        config.ListNestedZips = page.querySelector('#amNested').checked;
+                        config.BuildArchives = page.querySelector('#amBuild').checked;
+                        config.BuildInBackground = page.querySelector('#amBuildBg').checked;
+                        config.BuiltArchiveLocation = page.querySelector('input[name=amLocation]:checked').value;
+                        config.ServeSingleFiles = page.querySelector('#amSingle').checked;
+                        config.SingleFileZipFromMegabytes = parseInt(page.querySelector('#amSingleMB').value, 10) || 100;
+                        config.ShowLeftOutFiles = page.querySelector('input[name=amLeftOut]:checked').value;
+                        return ApiClient.updatePluginConfiguration(pluginId, config);
+                    }).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        dirty = false;
+                        setState('saved');
+                        window.setTimeout(function () { if (!dirty) { setState(''); } }, 3000);
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                    });
+                    return false;
+                });
 
-                function fill(key, values) {
-                    return (text[key] || key).replace(/\{(\w+)\}/g, function (m, k) { return values && k in values ? values[k] : m; });
-                }
-
+                // ---- tools: the folder index ----
                 var polling = null;
 
                 function showIndex(status) {
@@ -209,11 +483,71 @@
 
                 function pollIndex() { return indexCall('GET', 'Status'); }
 
+                var buildPolling = null;
+
+                function showBuild(status) {
+                    var out = page.querySelector('#amBuildStatus');
+                    var button = page.querySelector('#amRebuild');
+                    button.disabled = !!status.Running || !page.querySelector('#amBuild').checked;
+                    if (status.Running) {
+                        out.textContent = fill('config.building.running', { progress: Math.round(status.Progress || 0) });
+                    } else if (!page.querySelector('#amBuild').checked) {
+                        out.textContent = fill('config.building.off');
+                    } else {
+                        out.textContent = fill('config.building.result', { planned: status.Planned, current: status.UpToDate, alone: status.CoursesLeftAlone })
+                            + (status.Failed ? ' ' + fill('config.building.failed', { failed: status.Failed }) : '');
+                    }
+                    window.clearTimeout(buildPolling);
+                    if (status.Running && page.isConnected) {
+                        buildPolling = window.setTimeout(pollBuild, 1500);
+                    }
+                }
+
+                function buildCall(method, path) {
+                    return ApiClient.ajax({ type: method, url: ApiClient.getUrl('AdditionalMaterial/Build/' + path), dataType: 'json' })
+                        .then(showBuild, function () { page.querySelector('#amBuildStatus').textContent = fill('config.indexFailed'); });
+                }
+
+                function pollBuild() { return buildCall('GET', 'Status'); }
+
+                page.querySelector('#amRebuild').addEventListener('click', function () {
+                    page.querySelector('#amRebuild').disabled = true;
+                    buildCall('POST', 'Rebuild');
+                });
+
                 page.querySelector('#amReread').addEventListener('click', function () {
                     page.querySelector('#amReread').disabled = true;
                     indexCall('POST', 'Refresh');
                 });
 
+                // ---- about ----
+                function showVersion() {
+                    return ApiClient.getInstalledPlugins().then(function (plugins) {
+                        var me = (plugins || []).filter(function (p) { return normalize(p.Id) === normalize(pluginId); })[0];
+                        page.querySelector('#amVersion').textContent = me ? fill('config.version', { version: me.Version }) : '';
+                    }).catch(function () { /* leave it blank */ });
+                }
+
+                page.querySelector('#amCopyRepo').addEventListener('click', function () {
+                    var url = page.querySelector('#amRepoUrl').textContent;
+                    var button = page.querySelector('#amCopyRepo');
+                    var done = function () { button.querySelector('span').textContent = fill('config.copied'); };
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(url).then(done, function () { selectRepo(); });
+                    } else {
+                        selectRepo();
+                    }
+                });
+
+                function selectRepo() {
+                    var range = document.createRange();
+                    range.selectNodeContents(page.querySelector('#amRepoUrl'));
+                    var sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+
+                // ---- translation ----
                 function translate() {
                     var lang = document.documentElement.getAttribute('lang') || navigator.language || 'en';
                     return fetch(ApiClient.getUrl('AdditionalMaterial/web/strings', { lang: lang }))
@@ -221,52 +555,29 @@
                         .then(function (strings) {
                             Object.keys(text).forEach(function (k) { if (strings[k]) { text[k] = strings[k]; } });
                             page.querySelectorAll('[data-i18n]').forEach(function (el) {
-                                var text = strings[el.getAttribute('data-i18n')];
-                                if (text) { el.textContent = text; }
+                                var t = strings[el.getAttribute('data-i18n')];
+                                if (t) { el.textContent = t; }
                             });
                             page.querySelectorAll('[data-i18n-label]').forEach(function (el) {
-                                var text = strings[el.getAttribute('data-i18n-label')];
-                                var label = text && el.parentNode && el.parentNode.querySelector('label');
-                                if (text) { el.setAttribute('label', text); }
-                                if (label) { label.textContent = text; }
+                                var t = strings[el.getAttribute('data-i18n-label')];
+                                var label = t && el.parentNode && el.parentNode.querySelector('label');
+                                if (t) { el.setAttribute('label', t); }
+                                if (label) { label.textContent = t; }
                             });
                         })
                         .catch(function () { /* keep the built-in English */ });
                 }
 
                 page.addEventListener('pageshow', function () {
-                    translate().then(pollIndex);
-                    Dashboard.showLoadingMsg();
-                    Promise.all([ApiClient.getPluginConfiguration(pluginId), ApiClient.getVirtualFolders()]).then(function (results) {
+                    var last = 'general';
+                    try { last = sessionStorage.getItem(SECTION_KEY) || 'general'; } catch (e) { /* not available */ }
+                    showSection(last);
+                    var configured = Promise.all([ApiClient.getPluginConfiguration(pluginId), ApiClient.getVirtualFolders()]).then(function (results) {
                         render(results[0], results[1] || []);
                         Dashboard.hideLoadingMsg();
                     });
-                });
-
-                page.querySelectorAll('input[name=amStyle], #amAccent').forEach(function (el) {
-                    el.addEventListener('input', preview);
-                    el.addEventListener('change', preview);
-                });
-
-                page.querySelector('#AdditionalMaterialConfigForm').addEventListener('submit', function (e) {
-                    e.preventDefault();
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-                        config.EnabledLibraryIds = Array.prototype.map.call(
-                            page.querySelectorAll('#amLibraries input:checked'),
-                            function (input) { return input.dataset.libraryId; });
-                        config.RequireDownloadPermission = page.querySelector('#amRequireDownload').checked;
-                        config.LinkLifetimeMinutes = parseInt(page.querySelector('#amLinkMinutes').value, 10) || 10;
-                        config.ButtonStyle = page.querySelector('input[name=amStyle][value=color]').checked ? 'color' : 'mono';
-                        config.AccentColor = page.querySelector('#amAccent').value || '#00A4DC';
-                        var lv = page.querySelector('input[name=amLevels]:checked');
-                        config.ShowOnParents = lv ? lv.value : 'all';
-                        config.ShowOnCards = page.querySelector('#amCards').checked;
-                        config.ShowInLists = page.querySelector('#amLists').checked;
-                        config.ListNestedZips = page.querySelector('#amNested').checked;
-                        ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
-                    });
-                    return false;
+                    Promise.all([translate(), configured]).then(function () { pollIndex(); pollBuild(); showVersion(); });
                 });
             })();
         </script>

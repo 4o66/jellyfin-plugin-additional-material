@@ -22,6 +22,12 @@ public sealed class ContentsEntry
 
     /// <summary>Gets or sets a value indicating whether a nested zip was too large to list.</summary>
     public bool TooLargeToList { get; set; }
+
+    /// <summary>Gets or sets why the file was replaced by a note, or (with <see cref="LeftOut"/>) left out.</summary>
+    public string? Reason { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether a rule left the file out of the archive (shown, not downloadable).</summary>
+    public bool LeftOut { get; set; }
 }
 
 /// <summary>An archive's listing.</summary>
