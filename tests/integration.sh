@@ -57,8 +57,8 @@ mk "$WORK/media/outside/Season 3" "S03E01 - Linked.material.zip"  # reached only
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.2.1.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.2.1.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.2.2.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$WORK/config/plugins/Additional Material_1.2.2.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8096" \

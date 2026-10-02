@@ -37,7 +37,13 @@
     var settings = { ButtonStyle: 'color', AccentColor: '#00A4DC', ShowOnParents: 'all', ShowOnCards: true, ShowInLists: true };
     var ready = null;
     var treeCache = {};
+    // Settled answers only: an item's status, or false for "no material". Requests still on the
+    // way live in statusInFlight; mixing the two once let cards that Jellyfin re-drew mid-request
+    // read "still asking" as "nothing here" and never get their icon.
     var statusCache = {};
+    var statusInFlight = {};
+    var statusRetry = 0;
+    var FAILED = {};
     var iconCount = 0;
     var scheduled = false;
 
@@ -379,7 +385,7 @@
             return;
         }
         elem.dataset.amDone = id;
-        if (!status) {
+        if (!status) {  // false: settled, no material
             return;
         }
         var label = status.Own && status.Below === 0 ? t('dialog.title') : t('button.count', { count: (status.Own ? 1 : 0) + status.Below });
@@ -437,34 +443,50 @@
             return;
         }
         var ask = [];
+        var waits = [];
         pending.forEach(function (x) {
             var id = normId(x[0].getAttribute('data-id'));
-            if (!(id in statusCache) && ask.indexOf(id) < 0) {
+            if (id in statusCache) {
+                decorate(client, x[0], x[1], statusCache[id]);
+            } else if (id in statusInFlight) {
+                if (waits.indexOf(statusInFlight[id]) < 0) {
+                    waits.push(statusInFlight[id]);
+                }
+            } else if (ask.indexOf(id) < 0) {
                 ask.push(id);
             }
         });
-        var fetches = [];
         for (var i = 0; i < ask.length; i += 200) {
-            var chunk = ask.slice(i, i + 200);
-            chunk.forEach(function (id) { statusCache[id] = null; });
-            fetches.push(getJson(client, 'AdditionalMaterial/Items/Status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ Ids: chunk })
-            }).then(function (res) {
-                Object.keys(res || {}).forEach(function (k) { statusCache[normId(k)] = res[k]; });
-            }).catch(function () {
-                chunk.forEach(function (id) { delete statusCache[id]; });
-            }));
+            (function (chunk) {
+                var request = getJson(client, 'AdditionalMaterial/Items/Status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ Ids: chunk })
+                }).then(function (res) {
+                    var found = {};
+                    Object.keys(res || {}).forEach(function (k) { found[normId(k)] = res[k]; });
+                    chunk.forEach(function (id) { statusCache[id] = found[id] || false; });
+                    statusRetry = 0;
+                }, function () {
+                    // Try again shortly (backing off), rather than waiting for the page to change.
+                    statusRetry = Math.min(statusRetry ? statusRetry * 2 : 2000, 30000);
+                    window.setTimeout(schedule, statusRetry);
+                    return FAILED;
+                }).then(function (r) {
+                    chunk.forEach(function (id) { delete statusInFlight[id]; });
+                    if (r === FAILED) {
+                        throw r;
+                    }
+                });
+                chunk.forEach(function (id) { statusInFlight[id] = request; });
+                waits.push(request);
+            })(ask.slice(i, i + 200));
         }
-        Promise.all(fetches).then(function () {
-            pending.forEach(function (x) {
-                var id = normId(x[0].getAttribute('data-id'));
-                if (id in statusCache && x[0].isConnected) {
-                    decorate(client, x[0], x[1], statusCache[id]);
-                }
-            });
-        });
+        if (waits.length) {
+            // Decorate whatever cards are on the page once the answers are in: Jellyfin may have
+            // replaced the ones that were there when the request went out.
+            Promise.all(waits).then(schedule, function () { /* the retry timer handles it */ });
+        }
     }
 
     // ---- wiring ----------------------------------------------------------------------------------

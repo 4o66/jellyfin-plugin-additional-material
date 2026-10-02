@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2 (2026-10-02)
+
+- Fixed: grid and list icons sometimes never appeared until the page was reloaded. If Jellyfin
+  re-drew the cards while the status request was still on its way, the new cards read "still
+  asking" as "no material". Cards now wait for the answer. A failed status request is retried
+  (2 s, backing off to 30 s) instead of waiting for the page to change.
+
 ## 1.2.1 (2026-10-02)
 
 - Security: material reached through a symbolic link or junction to a folder (below the library's

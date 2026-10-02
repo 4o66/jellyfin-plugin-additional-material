@@ -164,6 +164,41 @@ with sync_playwright() as p:
     except Exception as e:  # noqa: BLE001
         check("list row shows the icon", False, str(e)[:120])
         page.screenshot(path="/t/screenshot-list.png")
+    # Race: Jellyfin re-draws cards or rows while the status request is still on its way. The new
+    # elements must still get their icon (1.2.1 marked them "no material" for good). Checked in
+    # both places icons appear: grid cards and list rows.
+    def redraw_race(view, url, items, icon):
+        held, released = [], []
+        race = ctx.new_page()
+
+        def hold(route):
+            if released:
+                route.continue_()
+            else:
+                held.append(route)
+
+        race.route("**/AdditionalMaterial/Items/Status", hold)
+        race.goto(url)
+        name = f"{view}: re-drawn mid-request still gets the icon"
+        try:
+            for _ in range(150):
+                if held and race.locator(items).count():
+                    break
+                race.wait_for_timeout(200)
+            race.wait_for_timeout(500)
+            race.evaluate("(sel) => document.querySelectorAll(sel).forEach(c => c.replaceWith(c.cloneNode(true)))", items)
+            race.wait_for_timeout(500)
+            released.append(True)
+            for r in held:
+                r.continue_()
+            race.wait_for_selector(f"{items} {icon}", timeout=15000)
+            check(name, True)
+        except Exception as e:  # noqa: BLE001
+            check(name, False, f"held={len(held)} " + str(e)[:120])
+        race.close()
+
+    redraw_race("grid", f"{BASE}/web/#/tv?topParentId={training}&serverId={server['Id']}", ".card[data-id]", ".additionalMaterialIndicator")
+    redraw_race("list", f"{BASE}/web/#/details?id={season1}&serverId={server['Id']}", ".listItem[data-id]", ".additionalMaterialListButton")
     page.goto(f"{BASE}/web/#/dashboard")
     try:
         page.get_by_text("Additional Material", exact=True).first.wait_for(timeout=30000)

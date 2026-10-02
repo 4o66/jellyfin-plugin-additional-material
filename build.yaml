@@ -1,7 +1,7 @@
 ---
 name: "Additional Material"
 guid: "10121f36-d2e1-4b8d-96c4-b2cc720880f3"
-version: "1.2.1.0"
+version: "1.2.2.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "4o66"
@@ -15,4 +15,4 @@ category: "General"
 artifacts:
   - "Jellyfin.Plugin.AdditionalMaterial.dll"
 changelog: >
-  Security: zips under a linked folder (symlink or junction) are refused.
+  Fixed: grid and list icons sometimes needed a page reload to appear.
