@@ -246,6 +246,7 @@ put(os.path.join(TCS, "S01E02 - Two Files.txt"), "lesson two notes\n")
 put(os.path.join(TCS, "S01E02 - Two Files.docm"), b"PK\x03\x04 macro document")            # replaced by a note
 put(os.path.join(TCS, "notes.txt"), "section notes\n"); put(os.path.join(TCS, "section-slides.md"), "# slides\n")
 put(os.path.join(TCS, "Bonus Resources.txt"), "https://freecourseweb.com\nhttps://devcourseweb.com\n")   # advert: left out
+put(os.path.join(TCS, "3. Practice Quiz.html"), '<script type="text/javascript">window.location = "https://www.udemy.com/course/x/quiz/3";</script>\n')   # redirect: a link
 put(os.path.join(TC, "readme.txt"), "course readme\n")
 # Courses the server cannot write: built archives go to the plugin's cache. A container mounts
 # Course D read-only; a native server is kept out by permissions instead (set below). On Windows,
@@ -784,12 +785,15 @@ check("planned contents: the removal reason", [e.get("Reason") for e in c.get("E
       [".docm files are executable or script content"])
 c = cont(ADMIN, SEASONC)
 check("section: its file and the left-out advert", [[e.get("Path"), e.get("LeftOut")] for e in c.get("Entries", [])],
-      [["notes.txt", False], ["section-slides.md", False], ["Bonus Resources.txt", True]])
-check("left-out files carry the rule's reason", [e.get("Reason") for e in c.get("Entries", []) if e.get("LeftOut")],
+      [["notes.txt", False], ["section-slides.md", False], ["3. Practice Quiz.html", True], ["Bonus Resources.txt", True]])
+check("left-out files carry the rule's reason", [e.get("Reason") for e in c.get("Entries", []) if e.get("Path") == "Bonus Resources.txt"],
       ["link-only text file (advert) [rule link-only-text]"])
+check("redirect placeholder: offered as a link to the site", [e.get("Link") for e in c.get("Entries", []) if e.get("Path") == "3. Practice Quiz.html"],
+      ["https://www.udemy.com/course/x/quiz/3"])
+check("an advert carries no link", [e.get("Link") for e in c.get("Entries", []) if e.get("Path") == "Bonus Resources.txt"], [None])
 cfg(ShowLeftOutFiles="admins")
 check("left-out files: admins only (reader)", len([e for e in cont(READER, SEASONC).get("Entries", []) if e.get("LeftOut")]), 0)
-check("left-out files: admins only (admin)", len([e for e in cont(ADMIN, SEASONC).get("Entries", []) if e.get("LeftOut")]), 1)
+check("left-out files: admins only (admin)", len([e for e in cont(ADMIN, SEASONC).get("Entries", []) if e.get("LeftOut")]), 2)
 cfg(ShowLeftOutFiles="nobody")
 check("left-out files: nobody", len([e for e in cont(ADMIN, SEASONC).get("Entries", []) if e.get("LeftOut")]), 0)
 cfg(ShowLeftOutFiles="everyone")
