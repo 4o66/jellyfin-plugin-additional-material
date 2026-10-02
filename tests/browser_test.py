@@ -200,6 +200,11 @@ with sync_playwright() as p:
         lo = page.locator(".am-dialog .am-leftout")
         check("built archive: a left-out file is listed with its reason", "Bonus Resources.txt" in lo.inner_text() and "advert" in lo.inner_text(), lo.inner_text())
         check("built archive: a left-out file has no download button", lo.locator("button.am-file-download").count() == 0)
+        link = page.locator(".am-dialog .am-redirect a.am-open-link")
+        check("redirect placeholder: an Open link to the site", link.count() == 1 and link.get_attribute("href") == "https://www.udemy.com/course/x/quiz/3",
+              link.get_attribute("href") if link.count() else "missing")
+        check("redirect link opens in a new tab, without opener or referrer",
+              link.count() == 1 and link.get_attribute("target") == "_blank" and link.get_attribute("rel") == "noopener noreferrer")
         page.screenshot(path="/t/screenshot-built-contents.png")
         page.keyboard.press("Escape")
     except Exception as e:  # noqa: BLE001
@@ -308,9 +313,8 @@ with sync_playwright() as p:
         name = f"{view}: icon comes back after Jellyfin re-builds the element"
         try:
             pg.wait_for_selector(f"{items} {icon}", timeout=30000)
-            pg.evaluate(wipe)
-            pg.wait_for_timeout(100)
-            gone = pg.locator(f"{items} {icon}").count() == 0
+            # Wipe and count in one step: the plugin may put the icon back within milliseconds.
+            gone = pg.evaluate(f"() => {{ ({wipe})(); return document.querySelectorAll({json.dumps(items + ' ' + icon)}).length === 0; }}")
             pg.wait_for_selector(f"{items} {icon}", timeout=10000)
             check(name, gone, "the wipe did not remove the icon")
         except Exception as e:  # noqa: BLE001

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1 (2026-10-02)
+
+- Redirect placeholders (Udemy quiz and assignment pages that only send the browser to the
+  website) are no longer just "left out": the contents view offers **Open link ↗** to the site
+  they point at, in a new tab. The address is read from the file (meta refresh, or a script
+  setting the location); only http and https become links. Rules turn this on with
+  `show_link = true` (the Udemy redirect rule does); the helper script's report lists the address.
+
 ## 1.5.0 (2026-10-02)
 
 - **The plugin can build archives itself** (Settings → Building, off by default), with the helper
@@ -12,6 +20,9 @@
 - Each file in a built archive is stored or deflated depending on whether compressing it pays.
 - The contents view lists files a rule left out, with the reason (everyone, admins only, or nobody).
 - Tools → **Rebuild built archives**.
+- Downloads are opened so the file can still be replaced or deleted while it downloads (on Windows
+  a download used to block rebuilding or moving that archive). A copy that cannot be removed yet is
+  kept as the plugin's and removed on a later run, never mistaken for someone else's archive.
 - The planner is a C# port of the helper script's, held to identical results by CI; it reads the
   same rule files, with Tomlyn (BSD-2-Clause), now shipped beside the plugin's DLL. On a real
   library: 9 courses, 242 archives, 307 files, 284 skips, no differences.

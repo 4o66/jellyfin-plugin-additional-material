@@ -70,7 +70,16 @@ var report = new JsonObject
 {
     ["folder"] = target,
     ["courses"] = courses,
-    ["skipped"] = new JsonArray(planner.Skipped.Select(s => (JsonNode)new JsonObject { ["file"] = s.File, ["reason"] = s.Reason }).ToArray()),
+    ["skipped"] = new JsonArray(planner.Skipped.Select(s =>
+    {
+        var o = new JsonObject { ["file"] = s.File, ["reason"] = s.Reason };
+        if (planner.Links.TryGetValue(s.File, out var link))
+        {
+            o["link"] = link;
+        }
+
+        return (JsonNode)o;
+    }).ToArray()),
 };
 var text = report.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 if (jsonOut is null or "-")

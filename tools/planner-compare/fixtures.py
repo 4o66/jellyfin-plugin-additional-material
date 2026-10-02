@@ -80,6 +80,8 @@ put(f"{c}/[ FreeCourseWeb.com ] Read Me.txt", "visit us")
 put(f"{c}/Section 2 - More/Visit.txt", "More courses:\nhttps://a.example\nhttps://b.example\n")  # link-only text
 put(f"{c}/Section 2 - More/Passwords.txt", "password: SAnet.ST\nhttps://DevCourseWeb.com\n")    # advert text
 put(f"{c}/Section 2 - More/2. Quiz 1.html", '<script>window.location = "https://www.udemy.com/q";</script>')
+put(f"{c}/Section 2 - More/4. Quiz 2.html", '<meta http-equiv="refresh" content="0; url=https://www.udemy.com/x?a=1&amp;b=2">')  # meta refresh: link
+put(f"{c}/Section 2 - More/5. Quiz 3.html", '<script>location.href = "javascript:alert(1)"</script>')       # left out, no link
 put(f"{c}/Section 2 - More/3. FAQ.html", "<p>Real content about labs, long enough to keep the file.</p>" * 3)
 put(f"{c}/Section 2 - More/Real Notes.txt", "Remember to save your configs.\nhttps://example.com\n")
 put(f"{c}/Section 1 - Intro/1 - Welcome.material.zip", zipped({"old.txt": "old"}))  # existing trigger

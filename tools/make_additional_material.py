@@ -115,7 +115,7 @@ class RuleError(Exception):
     pass
 
 
-RULE_KEYS = {"id", "description", "action", "reason", "quiet", "match", "test"}
+RULE_KEYS = {"id", "description", "action", "reason", "quiet", "show_link", "match", "test"}
 MATCH_KEYS = {"names", "name_regex", "extensions", "max_size", "content_regex", "max_visible_text",
               "lines_regex", "max_lines", "allow_caption_lines", "caption_max_length", "folder_names"}
 TEST_KEYS = {"name", "content", "folder", "expect"}
@@ -131,6 +131,7 @@ class Rule:
     action: str
     reason: str
     quiet: bool
+    show_link: bool                 # the file only sends the browser to a website: report where
     source: Path
     names: list[str]
     name_regex: re.Pattern | None
@@ -177,6 +178,27 @@ class Rule:
         return True
 
 
+# Where a redirect placeholder sends the browser: meta refresh, or a script assigning the location.
+REDIRECT_PATTERNS = [
+    re.compile(rb"""<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*?content\s*=\s*["'][^"']*?url\s*=\s*['"]?([^"'>\s]+)""", re.I | re.S),
+    re.compile(rb"""<meta\b[^>]*?content\s*=\s*["'][^"']*?url\s*=\s*['"]?([^"'>\s]+)[^>]*http-equiv\s*=\s*["']?refresh""", re.I | re.S),
+    re.compile(rb"""location\.(?:replace|assign)\(\s*["']([^"']+)["']""", re.I),
+    re.compile(rb"""(?:window\.|document\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']""", re.I),
+]
+
+
+def redirect_target(data: bytes) -> str | None:
+    """The web address a redirect placeholder sends the browser to, if it is http(s), else None."""
+    for pattern in REDIRECT_PATTERNS:
+        m = pattern.search(data)
+        if m:
+            url = m.group(1).decode("utf-8", "replace").strip().replace("&amp;", "&")
+            if re.match(r"https?://[^\s/?#]+", url, re.I) and len(url) <= 2048 and not re.search(r"[\x00-\x20<>\"']", url):
+                return url
+            return None
+    return None
+
+
 def _regex(value, where: str, flags: int, binary: bool = False) -> re.Pattern:
     try:
         return re.compile(value.encode() if binary else value, flags)
@@ -216,7 +238,8 @@ def load_rule(path: Path) -> Rule:
     exts = match.get("extensions")
     return Rule(
         id=doc["id"], description=doc["description"], action=doc["action"],
-        reason=doc.get("reason", doc["description"]), quiet=bool(doc.get("quiet", False)), source=path,
+        reason=doc.get("reason", doc["description"]), quiet=bool(doc.get("quiet", False)),
+        show_link=bool(doc.get("show_link", False)), source=path,
         names=list(match.get("names", [])),
         name_regex=_regex(match["name_regex"], f"{path}: name_regex", re.I) if "name_regex" in match else None,
         extensions={e.lower() for e in exts} if exts is not None else None,
@@ -624,6 +647,7 @@ class Planner:
         self.attachment_dirs = set().union(*(r.folder_names for r in self.rules if r.action == "attachment-folder"))
         self.quiet_reasons = {f"{r.reason} [rule {r.id}]" for r in self.skip_rules if r.quiet}
         self.skipped: list[tuple[str, str]] = []
+        self.links: dict[str, str] = {}   # file -> where a redirect placeholder points (rules with show_link)
         self.blocked: dict[Path, str] = {}
         self.scans: dict[Path, dict] = {}
         self.allowed_clean: list[tuple[str, str]] = []
@@ -659,6 +683,10 @@ class Planner:
 
             for rule in self.skip_rules:
                 if rule.matches(path.name, size, read):
+                    if rule.show_link:
+                        link = redirect_target(read() or b"")
+                        if link:
+                            self.links[str(path)] = link
                     return f"{rule.reason} [rule {rule.id}]"
         if is_trigger(path.name):
             return "existing Additional Material archive"
@@ -1006,7 +1034,7 @@ def main(argv: list[str] | None = None) -> int:
             say("   (no additional material found)")
         report["courses"].append(entry)
 
-    report["skipped"] = [{"file": f, "reason": r} for f, r in planner.skipped]
+    report["skipped"] = [{"file": f, "reason": r, **({"link": planner.links[f]} if f in planner.links else {})} for f, r in planner.skipped]
     report["included_clean_executables"] = [{"file": f, "scan": r} for f, r in planner.allowed_clean]
     flagged = [f for f, r in planner.scans.items() if r["status"] == "flagged"]
     if flagged:

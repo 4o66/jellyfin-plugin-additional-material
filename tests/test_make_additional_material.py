@@ -207,6 +207,31 @@ class UnreadableArchives(unittest.TestCase):
             self.assertIn("could not be checked", removed[0]["reason"])
 
 
+class RedirectLinks(unittest.TestCase):
+    def test_redirect_target(self):
+        cases = {
+            b'<script type="text/javascript">window.location = "https://www.udemy.com/course/x/quiz/1";</script>': "https://www.udemy.com/course/x/quiz/1",
+            b'<meta http-equiv="refresh" content="0; url=https://www.udemy.com/x?a=1&amp;b=2">': "https://www.udemy.com/x?a=1&b=2",
+            b"<META CONTENT='0;URL=https://example.com/p' HTTP-EQUIV='Refresh'>": "https://example.com/p",
+            b'<script>location.replace("https://a.example/z")</script>': "https://a.example/z",
+            b'<script>location.href = "javascript:alert(1)"</script>': None,
+            b'<script>window.location = "//no-scheme.example/"</script>': None,
+            b"<p>no redirect here</p>": None,
+        }
+        for data, want in cases.items():
+            self.assertEqual(mam.redirect_target(data), want, data)
+
+    def test_report_lists_the_link(self):
+        with tempfile.TemporaryDirectory() as t:
+            course = Path(t) / "Course"
+            touch(course / "1 - Lesson.mp4")
+            touch(course / "2. Quiz 1.html", b'<script>window.location = "https://www.udemy.com/q/1";</script>')
+            code, _, report = run(str(course), "--mode", "course")
+            self.assertEqual(code, 0)
+            quiz = [s for s in report["skipped"] if s["file"].endswith("Quiz 1.html")]
+            self.assertEqual(quiz[0].get("link"), "https://www.udemy.com/q/1")
+
+
 class LibraryDetection(unittest.TestCase):
     def test_library_and_course_shapes(self):
         with tempfile.TemporaryDirectory() as tmp:

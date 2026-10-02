@@ -37,7 +37,7 @@ for k in sorted(set(pc) & set(cc)):
         files = list(x["placement"])
         want = [m.archive_name(Path(f), base) + (".REMOVED.txt" if f in removed else "") for f in files]
         if want != y.get("entries"): d(f"{z}: entry names differ\n   py: {want}\n   c#: {y.get('entries')}")
-sp = [(s["file"], s["reason"]) for s in py["skipped"]]; sc = [(s["file"], s["reason"]) for s in cs["skipped"]]
+sp = [(s["file"], s["reason"], s.get("link")) for s in py["skipped"]]; sc = [(s["file"], s["reason"], s.get("link")) for s in cs["skipped"]]
 if sp != sc:
     only_p = [s for s in sp if s not in sc]; only_c = [s for s in sc if s not in sp]
     d(f"skipped differs: {len(only_p)} only in python, {len(only_c)} only in c#" + ("" if only_p or only_c else " (order only)")
