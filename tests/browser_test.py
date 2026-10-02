@@ -68,6 +68,9 @@ def open_details(page, item):
     page.wait_for_selector(".itemDetailPage:not(.hide) .mainDetailButtons", timeout=60000)
 
 
+PLUGIN_GUID = "10121f36-d2e1-4b8d-96c4-b2cc720880f3"
+
+
 with sync_playwright() as p:
     browser = p.chromium.launch()
 
@@ -271,16 +274,61 @@ with sync_playwright() as p:
         check("dashboard sidebar lists the plugin", False, str(e)[:120])
     page.screenshot(path="/t/screenshot-dashboard.png")
     page.goto(f"{BASE}/web/#/configurationpage?name=Additional%20Material")
+    cfgpage = "#AdditionalMaterialConfigPage"
+    def section(name):
+        page.locator(f'{cfgpage} .am-nav button[data-section="{name}"]').click()
     try:
-        page.locator("#amPreview svg").wait_for(timeout=30000)
-        check("settings page shows the icon preview", True)
+        page.locator(f"{cfgpage} .am-nav").wait_for(timeout=30000)
+        page.wait_for_function("() => document.querySelectorAll('#amLibraries input').length > 0", timeout=30000)
+        check("settings page shows its sections", page.locator(f"{cfgpage} .am-nav button").count() == 5)
+        section("general")
         check("settings page lists the libraries", page.locator("#amLibraries input").count() == 2)
+        check("only one section shows at a time", page.locator(f"{cfgpage} .am-section:not([hidden])").count() == 1)
+        section("appearance")
+        page.locator("#amPreview svg").wait_for(timeout=10000)
+        check("settings page shows the icon preview", page.locator("#amPreview svg").is_visible())
+        check("libraries are hidden on the Appearance section", not page.locator("#amLibraries").is_visible())
+        check("accent shows the saved color", page.locator("#amAccent").input_value().lower() == "#db781b", page.locator("#amAccent").input_value())
+        check("no unsaved-changes marker before a change", page.locator("#amSaveState").inner_text().strip() == "")
+        page.locator("#amAccentReset").click()
+        check("Reset to default sets Jellyfin's accent", page.locator("#amAccent").input_value().lower() == "#00a4dc", page.locator("#amAccent").input_value())
+        check("Reset to default is disabled once at the default", page.locator("#amAccentReset").is_disabled())
+        preview_color = page.evaluate("() => document.querySelector('#amPreview').style.getPropertyValue('--am-accent')")
+        check("preview follows the reset", preview_color.lower() == "#00a4dc", preview_color)
+        check("a change shows the unsaved-changes marker", "Unsaved" in page.locator("#amSaveState").inner_text())
+        page.locator("label:has(#amCards)").click()
+        page.locator(f"{cfgpage} .am-footer .button-submit").click()
+        page.wait_for_function("() => /^Settings saved/.test(document.querySelector('#amSaveState').textContent.trim())", timeout=15000)
+        check("Save confirms and clears the marker", "Unsaved" not in page.locator("#amSaveState").inner_text())
+        saved = api(f"/Plugins/{PLUGIN_GUID}/Configuration", admin_token)
+        check("Save stores every section's fields", saved.get("AccentColor", "").upper() == "#00A4DC" and saved.get("ShowOnCards") is False,
+              f"{saved.get('AccentColor')} {saved.get('ShowOnCards')}")
+        page.locator("label:has(#amCards)").click()
+        page.locator("#amAccent").fill("#db781b")
+        page.locator(f"{cfgpage} .am-footer .button-submit").click()
+        page.wait_for_function("() => /^Settings saved/.test(document.querySelector('#amSaveState').textContent.trim())", timeout=15000)
+        section("contents")
+        check("settings page has the nested-zip setting, on", page.locator("#amNested").is_checked())
+        section("tools")
         page.locator("#amReread").click()
         page.wait_for_function("() => /Indexed \\d+ folders, \\d+ zips/.test(document.querySelector('#amIndexStatus').textContent)", timeout=30000)
         check("Re-read folders runs and reports the result", True)
-        check("settings page has the nested-zip setting, on", page.locator("#amNested").is_checked())
+        check("tools need no Save", page.locator("#amSaveState").inner_text().strip() == "" or "saved" in page.locator("#amSaveState").inner_text().lower())
+        section("about")
+        page.wait_for_function("() => /Version \\d/.test(document.querySelector('#amVersion').textContent)", timeout=15000)
+        check("About shows the installed version", True)
+        page.screenshot(path="/t/screenshot-settings.png", full_page=True)
+        page.reload()
+        page.locator(f"{cfgpage} .am-nav").wait_for(timeout=30000)
+        check("the open section is remembered", page.locator(f'{cfgpage} .am-nav button[aria-selected="true"]').get_attribute("data-section") == "about")
+        page.set_viewport_size({"width": 400, "height": 800})
+        section("appearance")
+        wide = page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 1")
+        check("settings fit a phone-width screen", wide)
+        page.screenshot(path="/t/screenshot-settings-phone.png", full_page=True)
+        page.set_viewport_size({"width": 1280, "height": 800})
     except Exception as e:  # noqa: BLE001
-        check("settings page shows the icon preview", False, str(e)[:120])
+        check("settings page shows the icon preview", False, str(e)[:160])
     page.screenshot(path="/t/screenshot-settings.png", full_page=True)
     ctx.close()
 

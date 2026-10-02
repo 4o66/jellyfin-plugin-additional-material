@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0 (2026-10-02)
+
+- **Settings, reorganized** (modeled on Intro Skipper's): sections in a sidebar (General,
+  Appearance, Contents, Tools, About), one shown at a time; on narrow screens the sections become
+  tabs. One Save bar stays at the bottom and shows when there are unsaved changes. The open
+  section is remembered.
+- **Reset to default** for the accent color (back to Jellyfin's `#00A4DC`).
+- About: the installed version, links, and the repository address with a Copy button.
+- README: installing now covers both repositories (this one and File Transformation's).
+
 ## 1.3.0 (2026-10-02)
 
 - **Contents view.** A lesson's button now opens a file tree of its archive, with a Download

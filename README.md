@@ -64,37 +64,59 @@ Only `.zip` is recognized in this version.
 
 ## Installing
 
-1. In Jellyfin, go to **Dashboard → Plugins → Repositories**, choose **Add**, and enter:
-   - Name: `4o66`
-   - URL: `https://raw.githubusercontent.com/4o66/JellyfinPluginManifest/main/manifest.json`
-2. Open **Catalog**, find **Additional Material**, and install it.
-3. Restart Jellyfin.
+Additional Material needs one other plugin, **File Transformation**, to put its button into the
+web client. Both install from the catalog once their repositories are added.
 
-The **web button** needs the [File Transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation)
-plugin, which many web-UI plugins already use. Without it everything else still works, and the
-download API remains available, but no button is shown.
+1. In Jellyfin, go to **Dashboard → Plugins → Repositories** and add both repositories (**Add**,
+   then name and URL, once for each):
+
+   | Name | URL |
+   |---|---|
+   | `4o66` | `https://raw.githubusercontent.com/4o66/JellyfinPluginManifest/main/manifest.json` |
+   | `File Transformation` | `https://www.iamparadox.dev/jellyfin/plugins/manifest.json` |
+
+   The second is File Transformation's own repository, as its
+   [README](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) gives it.
+   Skip it if it is already there: other web plugins (Home Screen Sections, Plugin Pages and
+   more) use the same one.
+2. Open **Dashboard → Plugins → Catalog** and install **File Transformation**, then
+   **Additional Material**. Neither needs configuring to start.
+3. Restart Jellyfin.
+4. Open **Dashboard → Plugins → Additional Material** (also in the dashboard sidebar), tick the
+   libraries that hold course material, and save.
+
+Without File Transformation, everything else still works and the download API stays available,
+but no button is shown in the web client.
 
 To install by hand instead, download the zip from
 [Releases](https://github.com/4o66/jellyfin-plugin-additional-material/releases), unpack it into a
 folder named `Additional Material_<version>` in Jellyfin's `plugins` directory, and restart
-Jellyfin.
+Jellyfin. (Install File Transformation the same way, from its own releases.)
 
 ## Configuring
 
-Dashboard → Plugins → **Additional Material**:
+Dashboard → Plugins → **Additional Material** (also in the dashboard sidebar). Settings are in
+sections; **Save** at the bottom saves every section and shows when there are unsaved changes.
 
-- **Libraries:** tick the libraries the plugin should look in. None are enabled by default.
-- **Require the "Allow media downloading" permission** (on by default): users without it see
-  the button disabled.
-- **Download link lifetime:** how long a download has to start after the button is pressed
-  (default 10 minutes).
-- **Show material from lower levels on:** only the item it belongs to, its section too, or its
-  section and course (default).
-- **Show the icon on cards in grid views** and **on rows in list views** (both on by default).
-- **Button style:** two colors (default), with the plus badge in an accent color you pick
-  (default Jellyfin's `#00A4DC`), or one color that follows the theme like the buttons beside it.
-
-The plugin also adds an **Additional Material** entry to the dashboard sidebar.
+- **General**
+  - **Libraries:** the libraries the plugin looks in. None are enabled by default.
+  - **Require the "Allow media downloading" permission** (on by default): users without it see
+    the download buttons disabled.
+  - **Download link lifetime:** how long a download has to start after the button is pressed
+    (default 10 minutes).
+- **Appearance**
+  - **Show material from lower levels on:** only the item it belongs to, its section too, or its
+    section and course (default).
+  - **Show the icon on cards in grid views** and **on rows in list views** (both on by default).
+  - **Button style:** two colors (default), with the plus badge in an accent color you pick, or
+    one color that follows the theme. **Reset to default** puts the accent back to Jellyfin's
+    `#00A4DC`.
+- **Contents**
+  - **List the files inside zips that are inside the material** (on by default).
+- **Tools** (act at once, no Save needed)
+  - **Re-read folders:** re-reads every enabled library's folders now, with progress and the
+    result. This also happens after every library scan.
+- **About:** the installed version, links, and the repository address with a Copy button.
 
 ## Security
 
