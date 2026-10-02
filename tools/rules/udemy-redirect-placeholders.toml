@@ -2,6 +2,8 @@ id = "udemy-redirect-placeholders"
 description = "Udemy quiz and assignment placeholders: tiny HTML pages that only redirect to the website"
 action = "skip"
 reason = "redirect placeholder (only sends the browser to a website)"
+# The contents view offers a link to that website instead of just listing the file.
+show_link = true
 
 [match]
 extensions = [".html", ".htm"]

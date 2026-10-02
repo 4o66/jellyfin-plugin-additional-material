@@ -69,14 +69,15 @@ printf 'PK\003\004 macro document' > "$TC/Season 1/S01E02 - Two Files.docm"     
 echo "section notes" > "$TC/Season 1/notes.txt"; echo "# slides" > "$TC/Season 1/section-slides.md"
 printf 'https://freecourseweb.com\nhttps://devcourseweb.com\n' > "$TC/Season 1/Bonus Resources.txt"   # advert: left out
 echo "course readme" > "$TC/readme.txt"
+echo '<script type="text/javascript">window.location = "https://www.udemy.com/course/x/quiz/3";</script>' > "$TC/Season 1/3. Practice Quiz.html"   # redirect: a link
 TD="$WORK/media/training/Course D"; mkdir -p "$TD/Season 1"     # mounted read-only in the server: built archives go to the cache
 cp "$T/Season 1/S01E01 - Lesson One.mp4" "$TD/Season 1/S01E01 - Read Only.mp4"
 echo "read-only notes" > "$TD/Season 1/S01E01 - Read Only.txt"; echo "more" > "$TD/Season 1/S01E01 - Read Only.md"
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.5.0.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$OUT/Tomlyn.dll" "$WORK/config/plugins/Additional Material_1.5.0.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.5.1.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$OUT/Tomlyn.dll" "$WORK/config/plugins/Additional Material_1.5.1.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 # A signing key left readable by others (as 1.2.2 and earlier wrote it on Windows) must be replaced.
 KEYFILE="$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/signing.key"
@@ -288,11 +289,13 @@ grep -qi 'filename="\?S01E01 - Build Lesson.pdf' "$WORK/hc" && ok "one-file down
 check "planned lesson archive offered" "$(info "$ADMIN" "$EC2" | jq -r .FileName)" "S01E02 - Two Files.material.zip"
 check "planned contents: files, the macro document as a note" "$(cont "$ADMIN" "$EC2" | jq -c '[.Entries[] | select(.LeftOut|not) | .Path] | sort')" '["S01E02 - Two Files.docm.REMOVED.txt","S01E02 - Two Files.txt"]'
 check "planned contents: the removal reason" "$(cont "$ADMIN" "$EC2" | jq -r '.Entries[] | select(.Path|endswith(".REMOVED.txt")) | .Reason')" ".docm files are executable or script content"
-check "section: its file and the left-out advert" "$(cont "$ADMIN" "$SEASONC" | jq -c '[.Entries[] | [.Path, .LeftOut]]')" '[["notes.txt",false],["section-slides.md",false],["Bonus Resources.txt",true]]'
-check "left-out files carry the rule's reason" "$(cont "$ADMIN" "$SEASONC" | jq -r '.Entries[] | select(.LeftOut) | .Reason')" "link-only text file (advert) [rule link-only-text]"
+check "section: its file and the left-out advert" "$(cont "$ADMIN" "$SEASONC" | jq -c '[.Entries[] | [.Path, .LeftOut]]')" '[["notes.txt",false],["section-slides.md",false],["3. Practice Quiz.html",true],["Bonus Resources.txt",true]]'
+check "left-out files carry the rule's reason" "$(cont "$ADMIN" "$SEASONC" | jq -r '.Entries[] | select(.Path=="Bonus Resources.txt") | .Reason')" "link-only text file (advert) [rule link-only-text]"
+check "redirect placeholder: offered as a link to the site" "$(cont "$ADMIN" "$SEASONC" | jq -c '[.Entries[] | select(.Path=="3. Practice Quiz.html") | .Link, (.Link==null)]')" '["https://www.udemy.com/course/x/quiz/3",false]'
+check "an advert carries no link" "$(cont "$ADMIN" "$SEASONC" | jq -r '.Entries[] | select(.Path=="Bonus Resources.txt") | .Link')" null
 cfg '.ShowLeftOutFiles="admins"'
 check "left-out files: admins only (reader)" "$(cont "$READER" "$SEASONC" | jq '[.Entries[] | select(.LeftOut)] | length')" 0
-check "left-out files: admins only (admin)"  "$(cont "$ADMIN" "$SEASONC" | jq '[.Entries[] | select(.LeftOut)] | length')" 1
+check "left-out files: admins only (admin)"  "$(cont "$ADMIN" "$SEASONC" | jq '[.Entries[] | select(.LeftOut)] | length')" 2
 cfg '.ShowLeftOutFiles="nobody"'
 check "left-out files: nobody" "$(cont "$ADMIN" "$SEASONC" | jq '[.Entries[] | select(.LeftOut)] | length')" 0
 cfg '.ShowLeftOutFiles="everyone"'

@@ -107,5 +107,7 @@
   "config.building.running": "Building… {progress}%",
   "config.building.off": "Building is off (Building section).",
   "config.building.result": "{planned} archives planned, {current} built and up to date. {alone} courses have their own archives and are left as they are.",
-  "config.building.failed": "{failed} could not be built; see the server log."
+  "config.building.failed": "{failed} could not be built; see the server log.",
+  "dialog.openLink": "Open link ↗",
+  "dialog.opensSite": "a link to {host}"
 }

@@ -47,7 +47,9 @@
         'dialog.loadFailed': 'The contents could not be read. Try again in a moment.',
         'dialog.emptyArchive': 'This archive is empty.',
         'dialog.leftOut': 'left out: {reason}',
-        'dialog.downloadOne': 'Download {name} ({size})'
+        'dialog.downloadOne': 'Download {name} ({size})',
+        'dialog.openLink': 'Open link \u2197',
+        'dialog.opensSite': 'a link to {host}'
     };
     var settings = { ButtonStyle: 'color', AccentColor: '#00A4DC', ShowOnParents: 'all', ShowOnCards: true, ShowInLists: true };
     var ready = null;
@@ -261,6 +263,9 @@
             '.am-leftout .am-name{text-decoration:line-through;text-decoration-color:rgba(255,255,255,.35);}',
             '.am-leftout .am-name small{display:inline-block;text-decoration:none;}',
             '.am-nodl{width:4.6em;}',
+            '.am-open-link{color:inherit;border:1px solid rgba(0,164,220,.6);border-radius:.3em;padding:.15em .55em;font-size:.8em;text-decoration:none;white-space:nowrap;}',
+            '.am-open-link:hover,.am-open-link:focus-visible{border-color:#00a4dc;background:rgba(0,164,220,.15);outline:none;}',
+            '.am-redirect .am-name{opacity:.85;}',
             '.am-foot{display:flex;justify-content:flex-end;gap:.6em;padding:.8em 1.2em 1em;border-top:1px solid rgba(255,255,255,.08);}',
             '.am-foot button{background:#00a4dc;border:none;color:#fff;border-radius:.3em;padding:.5em 1em;font:inherit;cursor:pointer;}',
             '.am-foot button:disabled{opacity:.4;cursor:default;}',
@@ -353,8 +358,9 @@
         node.files.forEach(function (f) {
             var removed = /\.REMOVED\.txt$/i.test(f.name);
             var leftOut = !!f.entry.LeftOut;
+            var link = leftOut && /^https?:\/\//i.test(f.entry.Link || '') ? f.entry.Link : null;
             var nested = f.entry.Children;
-            var r = el('div', 'am-node am-file' + (removed ? ' am-removed' : '') + (leftOut ? ' am-leftout' : ''));
+            var r = el('div', 'am-node am-file' + (removed ? ' am-removed' : '') + (link ? ' am-redirect' : leftOut ? ' am-leftout' : ''));
             r.style.paddingLeft = pad;
             var c = null;
             if (nested) {
@@ -369,7 +375,12 @@
                 r.appendChild(el('span', 'am-kind', kind));
             }
             var name = el('span', 'am-name', shown);
-            if (leftOut) {
+            if (link) {
+                // A placeholder that only sends the browser to a website: offer that website instead.
+                var host = link.replace(/^https?:\/\//i, '').split(/[\/?#]/)[0];
+                name.title = link;
+                name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.opensSite', { host: host })));
+            } else if (leftOut) {
                 name.title = f.entry.Reason || '';
                 name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.leftOut', { reason: f.entry.Reason || '' })));
             } else if (removed) {
@@ -380,6 +391,16 @@
             }
             r.appendChild(name);
             r.appendChild(el('span', 'am-size', formatSize(f.entry.Size)));
+            if (link) {
+                var a = el('a', 'am-open-link', t('dialog.openLink'));
+                a.href = link;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.title = link;
+                r.appendChild(a);
+                container.appendChild(r);
+                return;
+            }
             if (leftOut) {
                 r.appendChild(el('span', 'am-spacer am-nodl'));
                 container.appendChild(r);

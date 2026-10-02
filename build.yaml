@@ -1,7 +1,7 @@
 ---
 name: "Additional Material"
 guid: "10121f36-d2e1-4b8d-96c4-b2cc720880f3"
-version: "1.5.0.0"
+version: "1.5.1.0"
 targetAbi: "12.1.0.0"
 framework: "net10.0"
 owner: "4o66"
@@ -16,5 +16,4 @@ artifacts:
   - "Jellyfin.Plugin.AdditionalMaterial.dll"
   - "Tomlyn.dll"
 changelog: >
-  The plugin can build archives itself (Settings > Building, off by default), with the helper
-  script's rules. One-file material is handed out as the file. Contents list left-out files.
+  Redirect placeholders (Udemy quiz pages) get an Open link to the site they point at.

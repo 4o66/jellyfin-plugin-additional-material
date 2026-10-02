@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1 (2026-10-02)
+
+- Redirect placeholders (Udemy quiz and assignment pages that only send the browser to the
+  website) are no longer just "left out": the contents view offers **Open link ↗** to the site
+  they point at, in a new tab. The address is read from the file (meta refresh, or a script
+  setting the location); only http and https become links. Rules turn this on with
+  `show_link = true` (the Udemy redirect rule does); the helper script's report lists the address.
+
 ## 1.5.0 (2026-10-02)
 
 - **The plugin can build archives itself** (Settings → Building, off by default), with the helper

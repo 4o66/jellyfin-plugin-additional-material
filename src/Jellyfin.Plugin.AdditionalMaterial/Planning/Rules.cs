@@ -25,7 +25,17 @@ public sealed class RuleException : Exception
 /// </summary>
 public sealed class Rule
 {
-    private static readonly HashSet<string> _ruleKeys = ["id", "description", "action", "reason", "quiet", "match", "test"];
+    private static readonly HashSet<string> _ruleKeys = ["id", "description", "action", "reason", "quiet", "show_link", "match", "test"];
+    private const string Ws = "[ \\t\\n\\r\\f\\v]";
+
+    // Where a redirect placeholder sends the browser: meta refresh, or a script assigning the location.
+    private static readonly Regex[] _redirects =
+    [
+        Py.Compile("<meta\\b[^>]*http-equiv" + Ws + "*=" + Ws + "*[\"']?refresh[^>]*?content" + Ws + "*=" + Ws + "*[\"'][^\"']*?url" + Ws + "*=" + Ws + "*['\"]?([^\"'>" + " \\t\\n\\r\\f\\v" + "]+)", ignoreCase: true),
+        Py.Compile("<meta\\b[^>]*?content" + Ws + "*=" + Ws + "*[\"'][^\"']*?url" + Ws + "*=" + Ws + "*['\"]?([^\"'>" + " \\t\\n\\r\\f\\v" + "]+)[^>]*http-equiv" + Ws + "*=" + Ws + "*[\"']?refresh", ignoreCase: true),
+        Py.Compile("location\\.(?:replace|assign)\\(" + Ws + "*[\"']([^\"']+)[\"']", ignoreCase: true),
+        Py.Compile("(?:window\\.|document\\.)?location(?:\\.href)?" + Ws + "*=" + Ws + "*[\"']([^\"']+)[\"']", ignoreCase: true),
+    ];
     private static readonly HashSet<string> _matchKeys = ["names", "name_regex", "extensions", "max_size", "content_regex", "max_visible_text",
         "lines_regex", "max_lines", "allow_caption_lines", "caption_max_length", "folder_names"];
     private static readonly HashSet<string> _testKeys = ["name", "content", "folder", "expect"];
@@ -46,6 +56,9 @@ public sealed class Rule
 
     /// <summary>Gets a value indicating whether skips are left out of reports.</summary>
     public bool Quiet { get; private init; }
+
+    /// <summary>Gets a value indicating whether the files it skips only send the browser to a website, so the address is reported.</summary>
+    public bool ShowLink { get; private init; }
 
     /// <summary>Gets the file the rule came from.</summary>
     public string Source { get; private init; } = string.Empty;
@@ -147,6 +160,26 @@ public sealed class Rule
         }
 
         return true;
+    }
+
+    /// <summary>The http(s) address a redirect placeholder sends the browser to, or <c>null</c> (the script's redirect_target).</summary>
+    /// <param name="data">The file's bytes.</param>
+    /// <returns>The address.</returns>
+    public static string? RedirectTarget(byte[] data)
+    {
+        var text = Py.Bytes(data);
+        foreach (var pattern in _redirects)
+        {
+            var m = pattern.Match(text);
+            if (m.Success)
+            {
+                var url = Py.Strip(Encoding.UTF8.GetString(Encoding.Latin1.GetBytes(m.Groups[1].Value))).Replace("&amp;", "&", StringComparison.Ordinal);
+                return Regex.IsMatch(url, @"^https?://[^\s/?#]+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) && url.Length <= 2048
+                    && !Regex.IsMatch(url, "[\\x00-\\x20<>\"']") ? url : null;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Runs the rule's own <c>[[test]]</c> cases.</summary>
@@ -261,6 +294,7 @@ public sealed class Rule
             Action = action,
             Reason = Get(doc, "reason") as string ?? (string)doc["description"],
             Quiet = Get(doc, "quiet") is true,
+            ShowLink = Get(doc, "show_link") is true,
             Source = fileName,
             Names = Strings(match, "names"),
             NameRegex = Get(match, "name_regex") is string nr ? Pattern(nr, fileName, "name_regex") : null,

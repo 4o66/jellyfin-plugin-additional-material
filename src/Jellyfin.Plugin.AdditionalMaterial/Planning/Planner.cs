@@ -46,6 +46,9 @@ public sealed class PlannedArchive
     /// <summary>Gets the files a rule left out that would otherwise be in this archive, and why (not in the script's report).</summary>
     public List<(string File, string Reason)> LeftOut { get; } = [];
 
+    /// <summary>Gets, for left-out redirect placeholders, the website each one sends the browser to.</summary>
+    public Dictionary<string, string> Links { get; } = new(StringComparer.Ordinal);
+
     /// <summary>Gets the files replaced by a note, and why.</summary>
     public Dictionary<string, string> Removed { get; } = new(StringComparer.Ordinal);
 
@@ -105,6 +108,9 @@ public sealed class Planner
 
     /// <summary>Gets files left out, with the reason (quiet reasons are not listed).</summary>
     public List<(string File, string Reason)> Skipped { get; } = [];
+
+    /// <summary>Gets where each left-out redirect placeholder points (rules with <c>show_link</c>).</summary>
+    public Dictionary<string, string> Links { get; } = new(StringComparer.Ordinal);
 
     /// <summary>Gets, per course, the video-less subfolders that made it one archive (empty when it was not packaged).</summary>
     public Dictionary<string, List<string>> Packaged { get; } = new(StringComparer.Ordinal);
@@ -256,6 +262,10 @@ public sealed class Planner
             if (groups.TryGetValue(target, out var into))
             {
                 into.LeftOut.Add((file, reason));
+                if (Links.TryGetValue(file, out var link))
+                {
+                    into.Links[file] = link;
+                }
             }
         }
 
@@ -390,6 +400,11 @@ public sealed class Planner
             {
                 if (rule.Matches(name, size, Read))
                 {
+                    if (rule.ShowLink && Rule.RedirectTarget(Read() ?? []) is { } link)
+                    {
+                        Links[path] = link;
+                    }
+
                     return $"{rule.Reason} [rule {rule.Id}]";
                 }
             }

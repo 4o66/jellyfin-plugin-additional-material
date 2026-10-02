@@ -563,7 +563,14 @@ public class AdditionalMaterialController : ControllerBase
         {
             foreach (var (file, reason) in archive.LeftOut)
             {
-                entries.Add(new ContentsEntry { Path = Path.GetRelativePath(archive.Base, file).Replace('\\', '/'), LeftOut = true, Reason = reason, Size = SafeSize(file) });
+                entries.Add(new ContentsEntry
+                {
+                    Path = Path.GetRelativePath(archive.Base, file).Replace('\\', '/'),
+                    LeftOut = true,
+                    Reason = reason,
+                    Size = SafeSize(file),
+                    Link = archive.Links.GetValueOrDefault(file),
+                });
             }
         }
 

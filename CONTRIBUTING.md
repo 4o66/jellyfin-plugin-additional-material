@@ -15,6 +15,9 @@ description = "What it catches and where it comes from"
 action = "skip"                      # "skip", or "attachment-folder" (see below)
 reason = "advert from my-site"       # shown in the dry run and the JSON report (default: description)
 quiet = false                        # true: skipped without being listed (for metadata noise)
+show_link = false                    # true: the files only send the browser to a website; the plugin's
+                                     # contents view offers a link to it (http/https only), and the
+                                     # script's report lists it
 
 [match]                              # every condition given must hold
 names = ["Visit my-site*.txt"]       # file-name globs, case-insensitive; a literal "[" is "[[]"

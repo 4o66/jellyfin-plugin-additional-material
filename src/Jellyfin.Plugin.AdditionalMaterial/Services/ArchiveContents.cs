@@ -28,6 +28,9 @@ public sealed class ContentsEntry
 
     /// <summary>Gets or sets a value indicating whether a rule left the file out of the archive (shown, not downloadable).</summary>
     public bool LeftOut { get; set; }
+
+    /// <summary>Gets or sets, for a left-out redirect placeholder, the http(s) address it would send the browser to.</summary>
+    public string? Link { get; set; }
 }
 
 /// <summary>An archive's listing.</summary>
