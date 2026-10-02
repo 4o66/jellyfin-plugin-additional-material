@@ -101,6 +101,25 @@
             .finally(function () { button.disabled = false; });
     }
 
+    // Design A6 (assets/make_icons.py): folder and zipper in the theme's color, plus badge in
+    // var(--am-accent), which is the theme's color too unless the two-color style is chosen.
+    var ICON = '<mask id="__ID__" maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28"><rect x="-2" y="-2" width="28" height="28" fill="#fff"/><circle cx="17.6" cy="17.4" r="6.6" fill="#000"/></mask><g mask="url(#__ID__)"><path d="M9.17 6l2 2H20v10H4V6h5.17M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="currentColor" fill-rule="evenodd"/><polyline points="8.65,11.60 10.35,12.90 8.65,14.20 10.35,15.50 8.65,16.80" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="miter"/><rect x="8.0" y="8.0" width="3" height="3.1" rx="1.1" fill="currentColor"/></g><circle cx="17.6" cy="17.4" r="4.9" fill="none" stroke="var(--am-accent, currentColor)" stroke-width="1.7"/><path d="M15.3 17.4H19.900000000000002M17.6 15.099999999999998V19.7" stroke="var(--am-accent, currentColor)" stroke-width="1.7" fill="none"/>';
+    var iconCount = 0;
+
+    function iconSvg(info) {
+        iconCount++;
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">' +
+            ICON.split('__ID__').join('am-cut-' + iconCount) + '</svg>';
+        var span = document.createElement('span');
+        span.className = 'detailButton-icon additionalMaterialIcon';
+        span.style.display = 'inline-flex';
+        if (info.ButtonStyle === 'color' && /^#[0-9A-Fa-f]{6}$/.test(info.AccentColor || '')) {
+            span.style.setProperty('--am-accent', info.AccentColor);
+        }
+        span.innerHTML = svg;
+        return span;
+    }
+
     function makeButton(client, itemId, info) {
         // A plain button with the web client's classes. Creating it as jellyfin-web's own
         // "emby-button" element runs internal code that throws on elements it did not render.
@@ -117,10 +136,7 @@
         button.setAttribute('aria-label', label);
         var content = document.createElement('div');
         content.className = 'detailButton-content';
-        var icon = document.createElement('span');
-        icon.className = 'material-icons detailButton-icon attach_file';
-        icon.setAttribute('aria-hidden', 'true');
-        content.appendChild(icon);
+        content.appendChild(iconSvg(info));
         button.appendChild(content);
         if (info.CanDownload) {
             button.addEventListener('click', function () { download(client, itemId, button); });

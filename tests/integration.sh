@@ -123,6 +123,12 @@ check "lesson archive found"                "$(info "$ADMIN" "$E1" | jq -r '.Fil
 check ".7z is ignored"                      "$(info "$ADMIN" "$E2" | jq -r '.Available')" false
 check "link escaping library refused"       "$(info "$ADMIN" "$E3" | jq -r '.Available')" false
 check "library not enabled: ignored"        "$(info "$ADMIN" "$SERIESB" | jq -r '.Available')" false
+check "style defaults to one color"      "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle + " " + .AccentColor')" "mono #00A4DC"
+curl "${A[@]}" "$BASE/Plugins/$GUID/Configuration" | jq '.ButtonStyle="color" | .AccentColor="#DB781B"' | curl "${A[@]}" -X POST "$BASE/Plugins/$GUID/Configuration" -d @- >/dev/null
+check "two-color style and accent saved"  "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle + " " + .AccentColor')" "color #DB781B"
+curl "${A[@]}" "$BASE/Plugins/$GUID/Configuration" | jq '.AccentColor="red;}<script>"' | curl "${A[@]}" -X POST "$BASE/Plugins/$GUID/Configuration" -d @- >/dev/null
+check "invalid accent falls back"         "$(info "$ADMIN" "$SERIES" | jq -r '.AccentColor')" "#00A4DC"
+curl "${A[@]}" "$BASE/Plugins/$GUID/Configuration" | jq '.AccentColor="#DB781B"' | curl "${A[@]}" -X POST "$BASE/Plugins/$GUID/Configuration" -d @- >/dev/null
 check "admin may download"                  "$(info "$ADMIN" "$SERIES" | jq -r '.CanDownload')" true
 check "no-download user: CanDownload false" "$(info "$READER" "$SERIES" | jq -r '.CanDownload')" false
 check "no-download user: link refused"      "$(as "$READER" -o /dev/null -w '%{http_code}' -X POST "$BASE/AdditionalMaterial/Items/$SERIES/Link")" 403

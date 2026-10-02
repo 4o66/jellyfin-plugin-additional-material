@@ -84,6 +84,10 @@ with sync_playwright() as p:
         path = d.value.path()
         check("click downloads the archive", d.value.suggested_filename == "additional-material.zip", d.value.suggested_filename)
         check("downloaded bytes match", hashlib.sha256(open(path, "rb").read()).hexdigest() == expected)
+    if button.count():
+        color = page.evaluate("() => getComputedStyle(document.querySelector('.additionalMaterialIcon')).getPropertyValue('--am-accent').trim()")
+        check("two-color style puts the accent on the badge", color.lower() == "#db781b", color)
+        check("button shows the A6 icon (inline SVG)", page.locator(".additionalMaterialButton svg").count() == 1)
     open_details(page, plain)
     page.wait_for_timeout(3000)
     check("no button on an item without material", page.locator(".itemDetailPage:not(.hide) .additionalMaterialButton").count() == 0)
@@ -91,6 +95,21 @@ with sync_playwright() as p:
     page.wait_for_timeout(3000)
     check("exactly one button after returning to the course", page.locator(".additionalMaterialButton").count() == 1,
           str(page.locator(".additionalMaterialButton").count()))
+    page.goto(f"{BASE}/web/#/dashboard")
+    try:
+        page.get_by_text("Additional Material", exact=True).first.wait_for(timeout=30000)
+        check("dashboard sidebar lists the plugin", True)
+    except Exception as e:  # noqa: BLE001
+        check("dashboard sidebar lists the plugin", False, str(e)[:120])
+    page.screenshot(path="/t/screenshot-dashboard.png")
+    page.goto(f"{BASE}/web/#/configurationpage?name=Additional%20Material")
+    try:
+        page.locator("#amPreview svg").wait_for(timeout=30000)
+        check("settings page shows the icon preview", True)
+        check("settings page lists the libraries", page.locator("#amLibraries input").count() == 2)
+    except Exception as e:  # noqa: BLE001
+        check("settings page shows the icon preview", False, str(e)[:120])
+    page.screenshot(path="/t/screenshot-settings.png", full_page=True)
     ctx.close()
 
     ctx, page = session(browser, reader_token, reader_id)

@@ -1,5 +1,7 @@
 # Additional Material for Jellyfin
 
+![Additional Material](assets/catalog.png)
+
 Adds an **Additional material** download button to courses, sections and lessons (series,
 seasons and episodes, and movies) that have a matching `.zip` stored beside them. It's for
 training and coursework libraries, where the videos come with PDFs, lab files, slides and notes
@@ -56,6 +58,10 @@ Dashboard → Plugins → **Additional Material**:
   the button disabled.
 - **Download link lifetime:** how long a download has to start after the button is pressed
   (default 10 minutes).
+- **Button style:** one color (follows the theme, like the buttons beside it), or two colors
+  with the plus badge in an accent color you pick (default Jellyfin's `#00A4DC`).
+
+The plugin also adds an **Additional Material** entry to the dashboard sidebar.
 
 ## Security
 

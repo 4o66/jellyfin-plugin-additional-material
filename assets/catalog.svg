@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#241733"/><stop offset="0.55" stop-color="#15101c"/><stop offset="1" stop-color="#101010"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <g transform="translate(300 276.0) scale(22.0)"><mask id="cut" maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28"><rect x="-2" y="-2" width="28" height="28" fill="#fff"/><circle cx="17.6" cy="17.4" r="6.6" fill="#000"/></mask><g mask="url(#cut)"><path d="M9.17 6l2 2H20v10H4V6h5.17M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="#F2F2F2" fill-rule="evenodd"/><rect x="8.35" y="11.20" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="9.25" y="11.75" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="8.35" y="12.30" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="9.25" y="12.85" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="8.35" y="13.40" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="9.25" y="13.95" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="8.35" y="14.50" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="9.25" y="15.05" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="8.35" y="15.60" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="9.25" y="16.15" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="8.35" y="16.70" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="9.25" y="17.25" width="1.4" height="0.58" rx="0.22" fill="#F2F2F2"/><rect x="8.0" y="8.0" width="3" height="2.9" rx="0.9" fill="#F2F2F2"/></g><circle cx="17.6" cy="17.4" r="5.75" fill="#DB781B"/><path d="M15.000000000000002 17.4H20.200000000000003M17.6 14.799999999999999V20.0" stroke="#3D2058" stroke-width="2.1" stroke-linecap="round" fill="none"/></g>
+  <text x="940" y="520" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="128" font-weight="700" fill="#FFFFFF">Additional</text>
+  <text x="940" y="660" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="128" font-weight="700" fill="#FFFFFF">Material</text>
+  <text x="944" y="740" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="46" fill="#BDB2C7">Course material downloads for Jellyfin</text>
+</svg>

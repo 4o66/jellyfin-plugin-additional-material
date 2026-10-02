@@ -64,13 +64,18 @@ public class AdditionalMaterialController : ControllerBase
         }
 
         var material = _locator.Find(item);
+        var config = Plugin.Instance?.Configuration;
+        var style = config?.ButtonStyle == "color" ? "color" : "mono";
+        var accent = config?.AccentColor is { } c && System.Text.RegularExpressions.Regex.IsMatch(c, "^#[0-9A-Fa-f]{6}$") ? c : "#00A4DC";
         if (material is null)
         {
-            return new MaterialInfo();
+            return new MaterialInfo { ButtonStyle = style, AccentColor = accent };
         }
 
         return new MaterialInfo
         {
+            ButtonStyle = style,
+            AccentColor = accent,
             Available = true,
             FileName = material.FileName,
             Size = material.Size,
@@ -240,6 +245,12 @@ public sealed class MaterialInfo
 
     /// <summary>Gets or sets a value indicating whether this user may download it.</summary>
     public bool CanDownload { get; set; }
+
+    /// <summary>Gets or sets the button style, <c>mono</c> or <c>color</c>.</summary>
+    public string ButtonStyle { get; set; } = "mono";
+
+    /// <summary>Gets or sets the badge color for the <c>color</c> style.</summary>
+    public string AccentColor { get; set; } = "#00A4DC";
 }
 
 /// <summary>A download token.</summary>

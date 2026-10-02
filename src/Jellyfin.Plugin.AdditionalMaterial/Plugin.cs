@@ -49,6 +49,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Name = Name,
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html",
+                EnableInMainMenu = true,
+                // The dashboard sidebar can only show Material Icons font glyphs.
+                MenuIcon = "folder_zip",
             },
         ];
     }

@@ -38,6 +38,28 @@
                         </div>
                     </div>
 
+                    <div class="verticalSection">
+                        <h3 class="sectionTitle" data-i18n="config.buttonStyle">Button style</h3>
+                        <div style="display:flex; gap:1.5em; align-items:center; flex-wrap:wrap;">
+                            <div>
+                                <label class="emby-checkbox-label" style="display:block; margin-bottom:.5em;">
+                                    <input type="radio" name="amStyle" value="mono" />
+                                    <span data-i18n="config.styleMono">One color, like the buttons beside it</span>
+                                </label>
+                                <label class="emby-checkbox-label" style="display:block;">
+                                    <input type="radio" name="amStyle" value="color" />
+                                    <span data-i18n="config.styleColor">Two colors: the plus in an accent color</span>
+                                </label>
+                            </div>
+                            <span id="amPreview" style="font-size:48px; display:inline-flex; padding:.15em; border-radius:.2em; background:rgba(0,0,0,.25);"></span>
+                        </div>
+                        <div class="inputContainer" style="margin-top:1em;">
+                            <label for="amAccent" data-i18n="config.accent">Accent color</label>
+                            <input id="amAccent" type="color" value="#00A4DC" style="width:4em; height:2.2em; vertical-align:middle; margin-left:.5em;" />
+                            <div class="fieldDescription" data-i18n="config.accentHelp">Used for the plus in the two-color style. Jellyfin's own accent is #00A4DC.</div>
+                        </div>
+                    </div>
+
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span data-i18n="config.save">Save</span>
@@ -54,6 +76,15 @@
 
                 function normalize(id) {
                     return String(id || '').replace(/-/g, '').toLowerCase();
+                }
+
+                var ICON = '<mask id="__ID__" maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28"><rect x="-2" y="-2" width="28" height="28" fill="#fff"/><circle cx="17.6" cy="17.4" r="6.6" fill="#000"/></mask><g mask="url(#__ID__)"><path d="M9.17 6l2 2H20v10H4V6h5.17M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="currentColor" fill-rule="evenodd"/><polyline points="8.65,11.60 10.35,12.90 8.65,14.20 10.35,15.50 8.65,16.80" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="miter"/><rect x="8.0" y="8.0" width="3" height="3.1" rx="1.1" fill="currentColor"/></g><circle cx="17.6" cy="17.4" r="4.9" fill="none" stroke="var(--am-accent, currentColor)" stroke-width="1.7"/><path d="M15.3 17.4H19.900000000000002M17.6 15.099999999999998V19.7" stroke="var(--am-accent, currentColor)" stroke-width="1.7" fill="none"/>';
+
+                function preview() {
+                    var color = page.querySelector('input[name=amStyle][value=color]').checked;
+                    var el = page.querySelector('#amPreview');
+                    el.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1em" height="1em">' + ICON.split('__ID__').join('am-cut-preview') + '</svg>';
+                    el.style.setProperty('--am-accent', color ? page.querySelector('#amAccent').value : 'currentColor');
                 }
 
                 function render(config, folders) {
@@ -78,6 +109,10 @@
                         list.appendChild(row);
                     });
                     page.querySelector('#amRequireDownload').checked = config.RequireDownloadPermission !== false;
+                    var style = config.ButtonStyle === 'color' ? 'color' : 'mono';
+                    page.querySelector('input[name=amStyle][value=' + style + ']').checked = true;
+                    page.querySelector('#amAccent').value = /^#[0-9A-Fa-f]{6}$/.test(config.AccentColor || '') ? config.AccentColor : '#00A4DC';
+                    preview();
                     page.querySelector('#amLinkMinutes').value = config.LinkLifetimeMinutes || 10;
                 }
 
@@ -109,6 +144,11 @@
                     });
                 });
 
+                page.querySelectorAll('input[name=amStyle], #amAccent').forEach(function (el) {
+                    el.addEventListener('input', preview);
+                    el.addEventListener('change', preview);
+                });
+
                 page.querySelector('#AdditionalMaterialConfigForm').addEventListener('submit', function (e) {
                     e.preventDefault();
                     Dashboard.showLoadingMsg();
@@ -118,6 +158,8 @@
                             function (input) { return input.dataset.libraryId; });
                         config.RequireDownloadPermission = page.querySelector('#amRequireDownload').checked;
                         config.LinkLifetimeMinutes = parseInt(page.querySelector('#amLinkMinutes').value, 10) || 10;
+                        config.ButtonStyle = page.querySelector('input[name=amStyle][value=color]').checked ? 'color' : 'mono';
+                        config.AccentColor = page.querySelector('#amAccent').value || '#00A4DC';
                         ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
                     });
                     return false;

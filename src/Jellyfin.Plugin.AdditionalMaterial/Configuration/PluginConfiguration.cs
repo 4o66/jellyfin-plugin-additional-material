@@ -20,4 +20,13 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets how long a download link stays valid, in minutes.</summary>
     public int LinkLifetimeMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// Gets or sets the button style: <c>mono</c> (one color, following the theme like the buttons
+    /// beside it) or <c>color</c> (the plus badge in <see cref="AccentColor"/>).
+    /// </summary>
+    public string ButtonStyle { get; set; } = "mono";
+
+    /// <summary>Gets or sets the badge color for the two-color style, as <c>#RRGGBB</c>. Default: Jellyfin's accent blue.</summary>
+    public string AccentColor { get; set; } = "#00A4DC";
 }

@@ -12,5 +12,10 @@
   "config.requireDownloadHelp": "Users without it see the button disabled. This is the permission Jellyfin's own Download button uses.",
   "config.linkMinutes": "Download link lifetime (minutes)",
   "config.linkMinutesHelp": "How long a download has to start after the button is pressed.",
-  "config.save": "Save"
+  "config.save": "Save",
+  "config.buttonStyle": "Button style",
+  "config.styleMono": "One color, like the buttons beside it",
+  "config.styleColor": "Two colors: the plus in an accent color",
+  "config.accent": "Accent color",
+  "config.accentHelp": "Used for the plus in the two-color style. Jellyfin's own accent is #00A4DC."
 }
