@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- The plugin carries a C# port of the helper script's planner (`Planning/`), for building
+  archives itself in a later version; nothing uses it yet. It reads the same rule files, with
+  Tomlyn (BSD-2-Clause), now shipped beside the plugin's DLL. On the 9 courses of a real training
+  library it agrees with the script on all 242 archives, 307 files and 284 skips; CI holds the two
+  to identical results on a fixture library that exercises every check.
+
 ## 1.4.0 (2026-10-02)
 
 - **Settings, reorganized** (modeled on Intro Skipper's): sections in a sidebar (General,

@@ -14,5 +14,6 @@ description: >
 category: "General"
 artifacts:
   - "Jellyfin.Plugin.AdditionalMaterial.dll"
+  - "Tomlyn.dll"
 changelog: >
   Settings reorganized into sections with one Save bar; Reset to default for the accent color.

@@ -70,6 +70,25 @@ instead of silently matching nothing.
 Users can keep their own rules outside the repo with `--rules DIR` and turn any rule off with
 `--disable-rule ID`.
 
+## The planner exists twice: keep the two in step
+
+What goes into which archive is decided by the helper script
+(`tools/make_additional_material.py`) and, for archives the plugin builds itself, by its C# port
+(`src/Jellyfin.Plugin.AdditionalMaterial/Planning/`). Both read the same `tools/rules/*.toml`.
+A change to the decisions, not just to rule files, must be made in both. CI's `planner-parity`
+job builds a library that exercises every check (`tools/planner-compare/fixtures.py`), plans it
+with both, and fails on any difference in archives, files, order, reasons, entry names or skips.
+To run it yourself:
+
+```zsh
+python3 tools/planner-compare/fixtures.py /tmp/am-lib
+python3 tools/make_additional_material.py /tmp/am-lib --json /tmp/py.json -q
+dotnet run --project tools/planner-compare -- /tmp/am-lib --rules tools/rules --json /tmp/cs.json
+python3 tools/planner-compare/compare.py /tmp/py.json /tmp/cs.json
+```
+
+A new check deserves a new fixture in `fixtures.py`, so both sides are held to it.
+
 ## Adding a translation
 
 Text is kept in one JSON file per language, so a translation is one file per part:

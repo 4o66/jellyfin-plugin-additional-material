@@ -22,6 +22,28 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m unittest discover -s tests -v
 
+  # The plugin's planner (C#) and the helper script (Python) must make the same decisions.
+  planner-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build planner-compare
+        run: dotnet publish tools/planner-compare -c Release -o pc --nologo
+      - name: Rule self-tests (C#)
+        run: dotnet pc/PlannerCompare.dll --self-test --rules tools/rules
+      - name: Plan the fixture library with both, and compare
+        run: |
+          python tools/planner-compare/fixtures.py "$RUNNER_TEMP/lib"
+          python tools/make_additional_material.py "$RUNNER_TEMP/lib" --json py.json -q
+          dotnet pc/PlannerCompare.dll "$RUNNER_TEMP/lib" --rules tools/rules --json cs.json
+          python tools/planner-compare/compare.py py.json cs.json
+
   plugin:
     runs-on: ubuntu-latest
     steps:
@@ -35,7 +57,7 @@ jobs:
         run: |
           version=$(grep -oP '(?<=<AssemblyVersion>)[^<]+' src/Jellyfin.Plugin.AdditionalMaterial/Jellyfin.Plugin.AdditionalMaterial.csproj)
           mkdir -p dist
-          (cd out && zip -j "../dist/additional-material_${version}.zip" Jellyfin.Plugin.AdditionalMaterial.dll)
+          (cd out && zip -j "../dist/additional-material_${version}.zip" Jellyfin.Plugin.AdditionalMaterial.dll Tomlyn.dll)
           md5sum dist/*.zip | tee dist/checksums.md5
       - uses: actions/upload-artifact@v4
         with:
