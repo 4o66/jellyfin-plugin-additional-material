@@ -258,9 +258,15 @@ docker run --rm -v "$PWD:/src" -w /src mcr.microsoft.com/dotnet/sdk:10.0 \
   VirusTotal server).
 - `tests/integration.sh out [file-transformation-plugin-dir]`: starts a throwaway Jellyfin
   12.1 container with sample media and checks lookups, permissions, path safety, signed links,
-  downloads, listings, batch lookups and the web injection (46 checks). `tests/integration.sh --cleanup` removes it.
+  downloads, contents and per-file downloads, building archives (beside the videos, in the cache,
+  read-only folders), batch lookups and the web injection (123 checks). `tests/integration.sh --cleanup` removes it.
+- `tests/integration.py`: the same checks against a server that is already installed (Windows, or
+  a native Linux install), plus platform cases: case-variant names, hard links, folder symlinks and
+  junctions, and `signing.key`'s permissions. Standard-library Python, run on the server's machine;
+  see its header.
 - `tests/browser_test.py`: drives the web client in headless Chromium against that server
-  (27 checks): item-page button, listing, grid and list icons, settings page. The command is in the file's header.
+  (71 checks): item-page buttons, the contents view, grid and list icons (with Jellyfin re-drawing
+  them), the settings page. The command is in the file's header.
 
 ## License
 

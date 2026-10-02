@@ -1,20 +1,30 @@
 """Headless-browser check of the web button, against the server tests/integration.sh leaves running.
 
   docker run --rm --network host -v "$PWD/tests:/t" -v /tmp/am-test:/am:ro \
-    mcr.microsoft.com/playwright/python:v1.63.0-noble python /t/browser_test.py
+    mcr.microsoft.com/playwright/python:v1.63.0-noble \
+    sh -c 'pip install -q --break-system-packages playwright==1.63.0 && python /t/browser_test.py'
+
+(The image carries the browsers but, at v1.63.0, not the playwright package itself.)
 
 Logs in through the API with the integration test's throwaway accounts, then drives jellyfin-web.
+
+Against a server tests/integration.py set up (Windows, or a native Linux install), copy that run's
+creds and run.json into a folder and mount it as /am instead: the server's address, its media
+paths and the archives' hashes are read from run.json, so the server's disk need not be mounted.
+AM_BASE overrides the address, for a server run.json names as 127.0.0.1.
 """
 
 import hashlib
 import json
+import os
 import sys
 import time
 import urllib.request
 
 from playwright.sync_api import sync_playwright
 
-BASE = "http://127.0.0.1:18096"
+RUN = json.load(open("/am/run.json")) if os.path.exists("/am/run.json") else None
+BASE = os.environ.get("AM_BASE") or (RUN or {}).get("base") or "http://127.0.0.1:18096"
 CLIENT = 'MediaBrowser Client="am-browser", Device="am-browser", DeviceId="am-browser-1", Version="1.0"'
 creds = dict(line.split() for line in open("/am/creds"))
 results = []
@@ -37,21 +47,31 @@ def login(user, pw):
     return r["AccessToken"], r["User"]["Id"]
 
 
+def spath(rel):
+    """A media path as the server sees it."""
+    return RUN["media"] + RUN["sep"] + rel.replace("/", RUN["sep"]) if RUN else "/media/" + rel
+
+
+def digest(key, rel):
+    return RUN["sha256"][key] if RUN else hashlib.sha256(open("/am/media/" + rel, "rb").read()).hexdigest()
+
+
 def item_id(token, kind, path):
+    fold = (lambda p: p.lower()) if RUN and RUN["sep"] == "\\" else (lambda p: p)
     items = api(f"/Items?Recursive=true&IncludeItemTypes={kind}&Fields=Path", token)["Items"]
-    return next(i["Id"] for i in items if i.get("Path") == path)
+    return next(i["Id"] for i in items if fold(i.get("Path") or "") == fold(path))
 
 
 server = api("/System/Info/Public")
 admin_token, admin_id = login("admin", creds["admin"])
 reader_token, reader_id = login("reader", creds["users"])
-series = item_id(admin_token, "Series", "/media/training/Course A")
-season1 = item_id(admin_token, "Season", "/media/training/Course A/Season 1")
-lesson1 = item_id(admin_token, "Episode", "/media/training/Course A/Season 1/S01E01 - Lesson One.mp4")
+series = item_id(admin_token, "Series", spath("training/Course A"))
+season1 = item_id(admin_token, "Season", spath("training/Course A/Season 1"))
+lesson1 = item_id(admin_token, "Episode", spath("training/Course A/Season 1/S01E01 - Lesson One.mp4"))
 training = next(v["ItemId"] for v in api("/Library/VirtualFolders", admin_token) if v["Name"] == "training")
-expected_lesson = hashlib.sha256(open("/am/media/training/Course A/Season 1/S01E01 - Lesson One.material.zip", "rb").read()).hexdigest()
-plain = item_id(admin_token, "Episode", "/media/training/Course A/Season 2/S02E01 - Sneaky.mp4")
-expected = hashlib.sha256(open("/am/media/training/Course A/additional-material.zip", "rb").read()).hexdigest()
+expected_lesson = digest("lesson", "training/Course A/Season 1/S01E01 - Lesson One.material.zip")
+plain = item_id(admin_token, "Episode", spath("training/Course A/Season 2/S02E01 - Sneaky.mp4"))
+expected = digest("course", "training/Course A/additional-material.zip")
 
 
 def session(browser, token, user_id):
@@ -168,8 +188,8 @@ with sync_playwright() as p:
           page.locator(".additionalMaterialButton:not(.additionalMaterialContents)").count() == 1 and page.locator(".additionalMaterialContents").count() == 1,
           str(page.locator(".additionalMaterialButton").count()))
     # Built archives: left-out files in the contents, one-file material offered as the file.
-    season_c = item_id(admin_token, "Season", "/media/training/Course C/Season 1")
-    lesson_c1 = item_id(admin_token, "Episode", "/media/training/Course C/Season 1/S01E01 - Build Lesson.mp4")
+    season_c = item_id(admin_token, "Season", spath("training/Course C/Season 1"))
+    lesson_c1 = item_id(admin_token, "Episode", spath("training/Course C/Season 1/S01E01 - Build Lesson.mp4"))
     open_details(page, season_c)
     try:
         page.locator(MAIN).wait_for(timeout=20000)
