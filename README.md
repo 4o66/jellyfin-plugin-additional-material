@@ -151,4 +151,6 @@ docker run --rm -v "$PWD:/src" -w /src mcr.microsoft.com/dotnet/sdk:10.0 \
 
 ## License
 
-[MIT](LICENSE).
+[GPL-3.0](LICENSE), like Jellyfin's own plugins.
+
+Copyright (C) 2026 4o66
