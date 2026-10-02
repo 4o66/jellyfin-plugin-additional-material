@@ -1,0 +1,19 @@
+id = "release-group-advert-text"
+description = "Small text files from course-sharing release groups: archive passwords and 'visit our site' links"
+action = "skip"
+reason = "release-group advert"
+
+[match]
+extensions = [".txt", ".text", ".nfo.txt", ""]
+max_size = 4096
+content_regex = '''freecourseweb\.com|devcourseweb\.com|freecourselab\.com|courseboat\.com|coursewikia\.com|appwikia\.com|sanet\.(st|lc)|tutsgalaxy|courselala\.com|coursehulu\.com|downloadly\.|getfreecourses|webtooltip\.com'''
+
+[[test]]
+name = "Passwords - only if needed when extracting + How to generate download links.txt"
+content = "When extracting, if password is asked, try each\n\nSAnet.ST\n\n>>>>> Visit and Support Our Site\nhttps://DevCourseWeb.com\nhttps://FreeCourseWeb.com\n"
+expect = "match"
+
+[[test]]
+name = "Lab notes.txt"
+content = "Configure OSPF area 0 first, then verify with show ip ospf neighbor.\nReference: https://www.cisco.com/c/en/us/support/docs/ip/open-shortest-path-first-ospf/\n"
+expect = "no-match"
