@@ -202,6 +202,10 @@ docker run --rm -v "$PWD:/src" -w /src mcr.microsoft.com/dotnet/sdk:10.0 \
 - `tests/integration.sh out [file-transformation-plugin-dir]`: starts a throwaway Jellyfin
   12.1 container with sample media and checks lookups, permissions, path safety, signed links,
   downloads, listings, batch lookups and the web injection (46 checks). `tests/integration.sh --cleanup` removes it.
+- `tests/integration.py`: the same checks against a server that is already installed (Windows, or
+  a native Linux install), plus platform cases: case-variant names, hard links, folder symlinks and
+  junctions, and `signing.key`'s permissions. Standard-library Python, run on the server's machine;
+  see its header.
 - `tests/browser_test.py`: drives the web client in headless Chromium against that server
   (27 checks): item-page button, listing, grid and list icons, settings page. The command is in the file's header.
 
