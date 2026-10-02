@@ -16,7 +16,9 @@ plugins folder.
 
   --work      scratch folder: sample media, creds and run.json are written here (deleted first)
   --log-dir   the server's log folder (checks the index was built at startup)
-  --data-dir  the server's data folder, holding plugins/ (checks signing.key's permissions)
+  --data-dir  the server's data folder, holding plugins/ (checks signing.key's permissions). Unless
+              a key is already there, a deliberately readable one is planted before the first link
+              is issued, and must be replaced (as 1.2.2 and earlier wrote it on Windows)
   --server-work  the --work folder as the server sees it, if different (a container's mount)
   --ffmpeg / --sample-video  how to make the sample video (default: the server's bundled ffmpeg)
   --ft        expect the File Transformation plugin, and check index.html carries the script
@@ -159,6 +161,20 @@ def video(folder, name):
     shutil.copy(sample, os.path.join(folder, name + ".mp4"))
 
 
+def zipbytes(entries):
+    """A zip in memory. Names are written exactly as given: ZipInfo would turn a backslash into
+    "/" on Windows, so the name is set after construction (some Windows zip tools write "\\")."""
+    import io
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, data in entries:
+            zi = zipfile.ZipInfo("placeholder", date_time=(2026, 1, 1, 0, 0, 0))
+            zi.filename = name
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(zi, data)
+    return buf.getvalue()
+
+
 def mk(folder, name, text=None):
     with zipfile.ZipFile(os.path.join(folder, name), "w") as z:
         z.writestr("notes.txt", f"material for {text or name}\n")
@@ -169,7 +185,14 @@ video(S1, "S01E01 - Lesson One"); video(S1, "S01E02 - Lesson Two"); video(S2, "S
 video(os.path.join(media, "other", "Course B", "Season 1"), "S01E01 - Other")
 mk(T, "additional-material.zip", "course")                       # course
 mk(S1, "additional-material.zip", "section")                     # section
-mk(S1, "S01E01 - Lesson One.material.zip")                       # lesson
+# lesson: a folder, a nested zip and a removal note, for the Contents view
+LESSON_NOTES = b"material for S01E01\n"
+with zipfile.ZipFile(os.path.join(S1, "S01E01 - Lesson One.material.zip"), "w") as z:
+    z.writestr("notes.txt", LESSON_NOTES)
+    z.writestr("slides/", b"")
+    z.writestr("slides/intro.txt", b"intro slides\n")
+    z.writestr("tool.exe.REMOVED.txt", b"tool.exe was removed\n")
+    z.writestr("labs.zip", zipbytes([("lab1.txt", b"lab one\n")]))
 with open(os.path.join(S1, "S01E02 - Lesson Two.material.7z"), "wb") as f:   # .7z is not recognized in this version
     f.write(b"7z\xbc\xaf\x27\x1c" + bytes(26))
 link_target = r"C:\Windows\win.ini" if WINDOWS else ("/etc/hostname" if os.path.exists("/etc/hostname") else "/etc/passwd")
@@ -184,6 +207,12 @@ XS1 = os.path.join(X, "Season 1")
 video(XS1, "S01E01 - Case"); mk(XS1, "S01E01 - Case.MATERIAL.ZIP")                        # name cased differently
 video(XS1, "S01E02 - Hard"); os.link(os.path.join(S1, "S01E01 - Lesson One.material.zip"),  # hard link: an ordinary file
                                      os.path.join(XS1, "S01E02 - Hard.material.zip"))
+video(XS1, "S01E03 - Backslash")                                                            # entry names written with "\\"
+BS_INNER = zipbytes([("sub\\lab2.txt", b"lab two\n")])
+BS_ZIP = zipbytes([("docs\\guide.txt", b"guide\n"), ("top.txt", b"top\n"), ("labs.zip", BS_INNER)])
+assert b"docs\\guide.txt" in BS_ZIP and b"sub\\lab2.txt" in BS_INNER, "zip was not written with backslash names"
+with open(os.path.join(XS1, "S01E03 - Backslash.material.zip"), "wb") as f:
+    f.write(BS_ZIP)
 video(os.path.join(outside, "Season 2"), "S02E01 - Linked"); mk(os.path.join(outside, "Season 2"), "S02E01 - Linked.material.zip")
 os.symlink(os.path.join(outside, "Season 2"), os.path.join(X, "Season 2"), target_is_directory=True)   # folder symlink out of the library
 links = {"E_LINKED": ("Season 2", "S02E01 - Linked", "folder symlink")}
@@ -193,6 +222,47 @@ if WINDOWS:
                    check=True, stdout=subprocess.DEVNULL)
     links["E_JUNCTION"] = ("Season 3", "S03E01 - Junction", "directory junction")
 os.remove(sample)
+
+# ---- signing key: a pre-existing key readable by others must be replaced ---------------------
+KEYFILE = os.path.join(args.data_dir, "plugins", "Jellyfin.Plugin.AdditionalMaterial", "signing.key") if args.data_dir else None
+SEED = None
+
+
+def keyprint(path):
+    """Identifies the key file. The replacement may be unreadable to this account (0600, another owner)."""
+    st_ = os.stat(path)
+    try:
+        digest = sha(path)
+    except PermissionError:
+        digest = None
+    return (st_.st_ino, st_.st_mtime_ns, st_.st_mode, digest)
+
+
+if KEYFILE:
+    if os.path.exists(KEYFILE):
+        print(f"      signing.key already present (planted before first start): {KEYFILE}")
+    else:
+        # Links are signed with a key loaded on first use, so planting it before the first link works.
+        try:
+            os.makedirs(os.path.dirname(KEYFILE), exist_ok=True)
+            with open(KEYFILE, "wb") as f:
+                f.write(secrets.token_bytes(32))
+            if not WINDOWS:
+                os.chmod(KEYFILE, 0o644)
+                if os.geteuid() == 0:   # the server must be able to delete it, as it could a key it wrote itself
+                    st0 = os.stat(os.path.join(args.data_dir, "plugins"))
+                    for p in (os.path.dirname(KEYFILE), KEYFILE):
+                        os.chown(p, st0.st_uid, st0.st_gid)
+            print(f"      planted a readable signing.key: {KEYFILE}")
+        except PermissionError as e:
+            info(f"signing key: could not plant a readable key ({e}); plant one before first start to test its replacement")
+            KEYFILE = None
+if KEYFILE:
+    SEED = keyprint(KEYFILE)
+    if WINDOWS:
+        print("      " + subprocess.run(["icacls", KEYFILE], capture_output=True, text=True).stdout.strip().replace("\n", "\n      "))
+    else:
+        print(f"      seed mode {oct(os.stat(KEYFILE).st_mode & 0o777)}")
 
 # ---- first-run setup ----------------------------------------------------------------
 for _ in range(90):
@@ -230,16 +300,16 @@ for lib in ["training", "other"]:
     q = urllib.parse.urlencode({"name": lib, "collectionType": "tvshows", "paths": spath("media", lib), "refreshLibrary": "false"})
     post(f"/Library/VirtualFolders?{q}", ADMIN, {"LibraryOptions": {"EnableRealtimeMonitor": False, "EnableInternetProviders": False}})
 post("/Library/Refresh", ADMIN)
-expected_eps = 6 + len(links)
+expected_eps = 7 + len(links)
 n, last_change, prev = 0, time.time(), -1
 for _ in range(90):
     n = (js(get("/Items?Recursive=true&IncludeItemTypes=Episode", ADMIN)) or {}).get("TotalRecordCount", 0)
     if n != prev:
         prev, last_change = n, time.time()
-    if n >= expected_eps or (n >= 6 and time.time() - last_change > 20):
+    if n >= expected_eps or (n >= 7 and time.time() - last_change > 20):
         break
     time.sleep(2)
-check("library scanned (episodes outside linked folders)", min(n, 6), 6)
+check("library scanned (episodes outside linked folders)", min(n, 7), 7)
 
 libs = js(get("/Library/VirtualFolders", ADMIN)) or []
 lib_id = {v["Name"]: v["ItemId"] for v in libs}
@@ -299,6 +369,7 @@ ids = {
     "E3": item("Episode", "training", "Course A", "Season 2", "S02E01 - Sneaky.mp4"),
     "E_CASE": item("Episode", "training", "Course X", "Season 1", "S01E01 - Case.mp4"),
     "E_HARD": item("Episode", "training", "Course X", "Season 1", "S01E02 - Hard.mp4"),
+    "E_BS": item("Episode", "training", "Course X", "Season 1", "S01E03 - Backslash.mp4"),
 }
 for k, (season, name, _) in links.items():
     ids[k] = item("Episode", "training", "Course X", season, name + ".mp4")
@@ -381,6 +452,8 @@ L1 = os.path.join(S1, "S01E01 - Lesson One.material.zip")
 TOKEN = (js(post(f"/AdditionalMaterial/Items/{E1}/Link", DL)) or {}).get("Token", "")
 status, hdrs, body = get(f"/AdditionalMaterial/Download/{TOKEN}", auth=False)
 check("download: 200", status, 200)
+if KEYFILE:
+    check("signing key: readable-by-others key replaced", os.path.exists(KEYFILE) and keyprint(KEYFILE) != SEED, True)
 check("download: bytes match the file", hashlib.sha256(body).hexdigest(), sha(L1))
 cd = hdrs.get("Content-Disposition", "") if hdrs else ""
 check("download: sent as attachment", cd.lower().startswith("attachment"), True)
@@ -399,10 +472,87 @@ swap = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345
                      "BADCFEHGJILKNMPORQTSVUXWZYbadcfehgjilknmporqtsvuxwzy1032547698-_")
 check("non-canonical token: 404", code("GET", f"/AdditionalMaterial/Download/{TOKEN[:-1]}{TOKEN[-1].translate(swap)}", auth=False), 404)
 check("garbage token: 404", code("GET", "/AdditionalMaterial/Download/not-a-token", auth=False), 404)
+
+
+# ---- contents ----------------------------------------------------------------------------
+def cont(token, item_id):
+    return js(get(f"/AdditionalMaterial/Items/{item_id}/Contents", token)) or {}
+
+
+def paths(c):
+    return sorted(e.get("Path") for e in c.get("Entries", []))
+
+
+def children(c, path):
+    return [[k.get("Path") for k in (e.get("Children") or [])] if e.get("Children") is not None else None
+            for e in c.get("Entries", []) if e.get("Path") == path]
+
+
+def entry(tok, name, **kw):
+    return get(f"/AdditionalMaterial/Download/{tok}?entry=" + urllib.parse.quote(name, safe=""), auth=False, **kw)
+
+
+c = cont(ADMIN, E1)
+check("contents: lesson files listed", paths(c), ["labs.zip", "notes.txt", "slides/intro.txt", "tool.exe.REMOVED.txt"])
+check("contents: nested zip listed", children(c, "labs.zip"), [["lab1.txt"]])
+check("contents: sizes are real", next((e.get("Size") for e in c.get("Entries", []) if e.get("Path") == "notes.txt"), None), len(LESSON_NOTES))
+check("contents: course archive", [e.get("Path") for e in cont(ADMIN, SERIES).get("Entries", [])], ["notes.txt"])
+check("contents: no material: 404", code("GET", f"/AdditionalMaterial/Items/{E3}/Contents", ADMIN), 404)
+check("contents: no access: 404", code("GET", f"/AdditionalMaterial/Items/{E1}/Contents", OUTSIDE), 404)
+check("contents: unauthenticated 401", code("GET", f"/AdditionalMaterial/Items/{E1}/Contents", auth=False), 401)
+c = cont(READER, E1)
+check("contents: reader may list", [c.get("CanDownload"), len(c.get("Entries", []))], [False, 4])
+TOKEN2 = (js(post(f"/AdditionalMaterial/Items/{E1}/Link", DL)) or {}).get("Token", "")
+status, hdrs, body = entry(TOKEN2, "slides/intro.txt")
+check("entry download: 200", status, 200)
+check("entry download: bytes match", body, b"intro slides\n")
+cd = hdrs.get("Content-Disposition", "") if hdrs else ""
+if re.match(r'attachment; filename="?intro\.txt', cd, re.I):
+    ok("entry download: attachment named after the file")
+else:
+    bad(f"entry download: attachment named after the file ({cd})")
+check("entry download: opaque content type", (hdrs.get("Content-Type", "") if hdrs else "").lower().startswith("application/octet-stream"), True)
+check("entry download: file inside the nested zip", entry(TOKEN2, "labs.zip!/lab1.txt")[2], b"lab one\n")
+check("entry download: no such entry 404", entry(TOKEN2, "nope.txt")[0], 404)
+check("entry download: folder is not a file", entry(TOKEN2, "slides")[0], 404)
+check("entry download: folder entry is not a file", entry(TOKEN2, "slides/")[0], 404)
+check("entry download: path tricks 404", entry(TOKEN2, "../../etc/passwd")[0], 404)
+check("entry download: needs a valid token", entry("not-a-token", "notes.txt")[0], 404)
+
+# Entry names a Windows zip tool wrote with "\\" are listed and served with "/".
+E_BS = ids["E_BS"]
+c = cont(ADMIN, E_BS)
+check("backslash names: listed with /", paths(c), ["docs/guide.txt", "labs.zip", "top.txt"])
+check("backslash names: inside a nested zip, listed with /", children(c, "labs.zip"), [["sub/lab2.txt"]])
+tok_bs = (js(post(f"/AdditionalMaterial/Items/{E_BS}/Link", ADMIN)) or {}).get("Token", "")
+status, hdrs, body = entry(tok_bs, "docs/guide.txt")
+check("backslash names: entry download by its / path", [status, body], [200, b"guide\n"])
+cd = hdrs.get("Content-Disposition", "") if hdrs else ""
+if re.match(r'attachment; filename="?guide\.txt', cd, re.I):
+    ok("backslash names: attachment named after the file")
+else:
+    bad(f"backslash names: attachment named after the file ({cd})")
+check("backslash names: nested entry download by its / path", entry(tok_bs, "labs.zip!/sub/lab2.txt")[2], b"lab two\n")
+check("backslash names: the raw \\ spelling is not a second path", entry(tok_bs, "docs\\guide.txt")[0], 404)
+
+cfg(ListNestedZips=False)
+check("nested listing off: shown as a plain file", children(cont(ADMIN, E1), "labs.zip"), [None])
+check("nested listing off: inner file not served", entry(TOKEN2, "labs.zip!/lab1.txt")[0], 404)
+cfg(ListNestedZips=True)
+check("index refresh: readers refused", code("POST", "/AdditionalMaterial/Index/Refresh", READER), 403)
+check("index refresh: admin accepted", code("POST", "/AdditionalMaterial/Index/Refresh", ADMIN), 202)
+for _ in range(20):
+    if (js(get("/AdditionalMaterial/Index/Status", ADMIN)) or {}).get("Running") is False:
+        break
+    time.sleep(1)
+s = js(get("/AdditionalMaterial/Index/Status", ADMIN)) or {}
+check("index status: counts folders and zips", [(s.get("Folders") or 0) > 0, (s.get("Zips") or 0) > 0, s.get("FinishedUtc") is not None], [True, True, True])
+
 pol = js(get(f"/Users/{DL_ID}", ADMIN))["Policy"]
 pol["EnableContentDownloading"] = False
 post(f"/Users/{DL_ID}/Policy", ADMIN, pol)
 check("revoked permission: existing link dies", code("GET", f"/AdditionalMaterial/Download/{TOKEN}", auth=False), 404)
+check("revoked permission: entry links die too", entry(TOKEN2, "notes.txt")[0], 404)
 
 
 # ---- folder index --------------------------------------------------------------------
@@ -420,6 +570,10 @@ if args.log_dir:
     logs = sorted(glob.glob(os.path.join(args.log_dir, "*.log")), key=os.path.getmtime)
     text = open(logs[-1], encoding="utf-8", errors="replace").read() if logs else ""
     check("index built at startup", "Additional Material: indexed" in text, True)
+    if KEYFILE:
+        line = next((ln.strip() for ln in text.splitlines() if "Additional Material: replacing" in ln), "")
+        print("      " + (line or "(no replacement line logged)"))
+        check("signing key: replacement logged", "readable by other accounts" in line, True)
 else:
     info("index built at startup: not checked (no --log-dir)")
 check("refresh task listed", next((t["Name"] for t in js(get("/ScheduledTasks", ADMIN)) or [] if t.get("Key") == TASK_KEY), None), "Refresh additional material")
@@ -472,6 +626,10 @@ if args.data_dir:
         print("      " + acl.strip().replace("\n", "\n      "))
         broad = [ln.strip() for ln in acl.splitlines() if re.search(r"BUILTIN\\Users|Everyone|Authenticated Users|\\Users:", ln)]
         check("signing.key: not readable by ordinary local users", broad, [])
+        check("signing.key: no inherited entries", [ln.strip() for ln in acl.splitlines() if "(I)" in ln], [])
+        prot = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-Acl -LiteralPath '{keys[0]}').AreAccessRulesProtected"],
+                              capture_output=True, text=True).stdout.strip()
+        check("signing.key: inheritance off", prot, "True")
     else:
         print("      " + keys[0])
         st_ = os.stat(keys[0])
