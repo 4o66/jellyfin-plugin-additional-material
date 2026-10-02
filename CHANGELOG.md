@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.2 (2026-10-02)
+
+- A course Jellyfin adds between scans (its file watcher, or a scan of just that folder) is planned
+  and, with background building on, built about 30 seconds after the last of its videos is added,
+  instead of waiting for the next full library scan.
+
 ## 1.5.1 (2026-10-02)
 
 - Redirect placeholders (Udemy quiz and assignment pages that only send the browser to the

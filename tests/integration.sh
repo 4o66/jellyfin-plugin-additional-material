@@ -76,8 +76,8 @@ echo "read-only notes" > "$TD/Season 1/S01E01 - Read Only.txt"; echo "more" > "$
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.5.1.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$OUT/Tomlyn.dll" "$WORK/config/plugins/Additional Material_1.5.1.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.5.2.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$OUT/Tomlyn.dll" "$WORK/config/plugins/Additional Material_1.5.2.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 # A signing key left readable by others (as 1.2.2 and earlier wrote it on Windows) must be replaced.
 KEYFILE="$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/signing.key"
@@ -334,6 +334,20 @@ check "background: every planned archive built" "$(bstat | jq -c '[.Planned == .
 check "background: section archive beside its videos" "$( [[ -f "$TC/Season 1/additional-material.zip" ]] && echo yes)" yes
 check "background: no archive for one-file material (lesson, course)" "$( [[ -f "$TC/Season 1/S01E01 - Build Lesson.material.zip" || -f "$TC/additional-material.zip" ]] && echo yes || echo no)" no
 check "background: only the unwritable folder's archive stays cached" "$(ls "$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/archives" 2>/dev/null | wc -l | tr -d ' ')" 1
+# A course added while the server runs is planned (and built) without a re-read or a full scan.
+curl "${A[@]}" "$BASE/System/Configuration" | jq '.LibraryMonitorDelay=1' | curl "${A[@]}" -X POST "$BASE/System/Configuration" -d @- >/dev/null
+full_plans=$(docker logs "$NAME" 2>&1 | grep -c "Additional Material: planned [0-9]* archives in")
+TE="$WORK/media/training/Course E"; mkdir -p "$TE/Season 1"
+cp "$T/Season 1/S01E01 - Lesson One.mp4" "$TE/Season 1/S01E01 - Late Lesson.mp4"
+echo "late notes" > "$TE/Season 1/S01E01 - Late Lesson.txt"; echo "# late" > "$TE/Season 1/S01E01 - Late Lesson.md"
+curl "${A[@]}" -X POST "$BASE/Library/Media/Updated" -d '{"Updates":[{"Path":"/media/training/Course E","UpdateType":"Created"}]}' >/dev/null
+EE=""; for _ in $(seq 60); do EE=$(item Episode "/media/training/Course E/Season 1/S01E01 - Late Lesson.mp4"); [[ -n $EE ]] && break; sleep 2; done
+check "new course: Jellyfin added it" "$( [[ -n $EE ]] && echo yes)" yes
+got=false; for _ in $(seq 45); do [[ $(info "$ADMIN" "$EE" | jq -r .Available) == true && -f "$TE/Season 1/S01E01 - Late Lesson.material.zip" ]] && { got=true; break; }; sleep 2; done
+check "new course: material offered and built within a minute, no re-read" "$got" true
+check "new course: planned on its own, not by a full re-plan" "$(docker logs "$NAME" 2>&1 | grep -c "Additional Material: planned [0-9]* archives in")" "$full_plans"
+docker logs "$NAME" 2>&1 | grep -q "planned /media/training/Course E again" && ok "new course: the watcher planned it" || bad "new course: the watcher planned it"
+
 cfg '.BuildArchives=false'
 check "building off: built archives still served as they are" "$(info "$ADMIN" "$EC2" | jq -r .FileName)" "S01E02 - Two Files.material.zip"
 cfg '.BuildArchives=true'

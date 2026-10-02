@@ -108,6 +108,17 @@ public sealed class MaterialIndex
     /// <param name="directory">An absolute folder path.</param>
     public void Relist(string directory) => List(directory);
 
+    /// <summary>Lists a folder and every folder below it again now (a course that was just added).</summary>
+    /// <param name="directory">An absolute folder path.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    public void RelistTree(string directory, CancellationToken cancellationToken)
+    {
+        foreach (var dir in Walk(directory, cancellationToken))
+        {
+            List(dir);
+        }
+    }
+
     /// <summary>Lists every folder of the enabled libraries. Runs at startup and after library scans.</summary>
     /// <param name="progress">Progress, 0–100.</param>
     /// <param name="cancellationToken">Cancellation.</param>

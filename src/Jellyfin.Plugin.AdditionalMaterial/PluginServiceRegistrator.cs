@@ -19,6 +19,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ArchivePlans>();
         serviceCollection.AddSingleton<ArchiveBuilder>();
         serviceCollection.AddSingleton<MaterialRefresh>();
+        serviceCollection.AddHostedService<NewCourseWatcher>();
         serviceCollection.AddSingleton<LinkSigner>();
         serviceCollection.AddTransient<IStartupFilter, FreshIndexStartupFilter>();
     }

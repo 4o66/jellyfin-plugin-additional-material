@@ -193,6 +193,7 @@ public sealed class ArchivePlans
     private readonly BuiltRegistry _registry;
     private readonly ILogger<ArchivePlans> _logger;
     private readonly Lazy<List<Rule>> _rules;
+    private readonly object _swap = new();
     private volatile Dictionary<string, PlanEntry> _plans = new(StringComparer.Ordinal);
     private int _planning;
 
@@ -255,7 +256,11 @@ public sealed class ArchivePlans
                 }
             }
 
-            _plans = plans;
+            lock (_swap)
+            {
+                _plans = plans;
+            }
+
             LastRun = (courses, leftAlone);
             _logger.LogInformation("Additional Material: planned {Archives} archives in {Courses} courses ({LeftAlone} have their own archives)", plans.Count, courses, leftAlone);
         }
@@ -263,6 +268,52 @@ public sealed class ArchivePlans
         {
             Interlocked.Exchange(ref _planning, 0);
         }
+    }
+
+    /// <summary>
+    /// Plans one course again (one that was just added or changed), replacing its earlier plans.
+    /// Returns the course folder if the path lies in a course of an enabled library.
+    /// </summary>
+    /// <param name="path">A path inside the course (a video, a season folder, the course itself).</param>
+    /// <returns>The course folder, or <c>null</c> if the path is in no enabled library or building is off.</returns>
+    public string? ReplanCourseOf(string path)
+    {
+        if (Plugin.Instance?.Configuration.BuildArchives != true)
+        {
+            return null;
+        }
+
+        var full = Path.GetFullPath(path);
+        string? course = null;
+        foreach (var root in Roots())
+        {
+            if (full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) || full == root)
+            {
+                course = Planner.CoursesIn(root).FirstOrDefault(c => full == c || full.StartsWith(c + Path.DirectorySeparatorChar, StringComparison.Ordinal));
+                break;
+            }
+        }
+
+        if (course is null)
+        {
+            return null;
+        }
+
+        // Plan from the disk first (slow), then swap it into whatever the plans are by then.
+        var fresh = HasOthersArchives(course) ? [] : PlanCourse(course).ToList();
+        lock (_swap)
+        {
+            var plans = new Dictionary<string, PlanEntry>(_plans.Where(p => p.Value.Course != course), StringComparer.Ordinal);
+            foreach (var entry in fresh)
+            {
+                plans[entry.Archive.Archive] = entry;
+            }
+
+            _plans = plans;
+        }
+
+        _logger.LogInformation("Additional Material: planned {Course} again ({Archives} archives)", course, fresh.Count);
+        return course;
     }
 
     /// <summary>Plans one archive's course again from the disk, for building it with what is there now.</summary>
@@ -277,17 +328,21 @@ public sealed class ArchivePlans
         }
 
         var fresh = PlanCourse(known.Course).FirstOrDefault(p => p.Archive.Archive == archivePath);
-        var plans = new Dictionary<string, PlanEntry>(_plans, StringComparer.Ordinal);
-        if (fresh is null)
+        lock (_swap)
         {
-            plans.Remove(archivePath);
-        }
-        else
-        {
-            plans[archivePath] = fresh;
+            var plans = new Dictionary<string, PlanEntry>(_plans, StringComparer.Ordinal);
+            if (fresh is null)
+            {
+                plans.Remove(archivePath);
+            }
+            else
+            {
+                plans[archivePath] = fresh;
+            }
+
+            _plans = plans;
         }
 
-        _plans = plans;
         return fresh;
     }
 
@@ -567,6 +622,30 @@ public sealed class ArchiveBuilder
             Status.Running = false;
             Interlocked.Exchange(ref _running, 0);
         }
+    }
+
+    /// <summary>Builds the missing or outdated archives of one course (one that was just added).</summary>
+    /// <param name="course">The course folder.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    public void BuildCourse(string course, CancellationToken cancellationToken)
+    {
+        foreach (var plan in _plans.All.Values.Where(p => p.Course == course).ToList())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (plan.LoneZip() is null && plan.SingleFile() is null && Current(plan.Archive.Archive, plan) is null)
+            {
+                try
+                {
+                    EnsureBuilt(plan.Archive.Archive);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidDataException)
+                {
+                    _logger.LogWarning(ex, "Additional Material: could not build {Archive}", plan.Archive.Archive);
+                }
+            }
+        }
+
+        Count();
     }
 
     /// <summary>Refreshes the counts without building anything.</summary>
