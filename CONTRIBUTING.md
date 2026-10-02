@@ -70,6 +70,20 @@ instead of silently matching nothing.
 Users can keep their own rules outside the repo with `--rules DIR` and turn any rule off with
 `--disable-rule ID`.
 
+## Adding a translation
+
+Text is kept in one JSON file per language, so a translation is one file per part:
+
+- `src/Jellyfin.Plugin.AdditionalMaterial/Web/i18n/<lang>.json`: the web button and the
+  settings page. The language follows the web client's display language (`de-DE`, then `de`,
+  then English).
+- `tools/i18n/<lang>.json`: the `.REMOVED.txt` notes the helper script puts in archives
+  (`--language`, or `LANG`).
+
+Copy `en.json`, translate the values, and keep every `{placeholder}` as is. Missing keys fall
+back to English. The tests check that a translation has no keys English lacks and keeps the same
+placeholders.
+
 ## Everything else
 
 - The plugin targets Jellyfin 12.1 / .NET 10. Build it and run `tests/integration.sh` (see the

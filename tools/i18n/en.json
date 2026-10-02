@@ -1,0 +1,11 @@
+{
+  "note.title": "REMOVED: {name}",
+  "note.because": "This file was left out of the Additional Material archive because {why}.",
+  "note.risk": "Executable and active content in course downloads is a common way malware spreads, so it\nis not handed out automatically.",
+  "note.file": "File",
+  "note.size": "Size",
+  "note.bytes": "{n} bytes",
+  "note.scan": "Scan",
+  "note.lookup": "The original is still on the server. You can look the SHA-256 up before deciding to trust it:",
+  "note.override": "An administrator can include such files by re-running make_additional_material.py with\n--allow-executables (programs and scripts) or --allow-active-documents (documents)."
+}

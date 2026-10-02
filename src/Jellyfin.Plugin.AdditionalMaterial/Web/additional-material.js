@@ -12,6 +12,32 @@
     window.__additionalMaterialLoaded = true;
 
     var BUTTON_CLASS = 'additionalMaterialButton';
+    // Text comes from the server in the web client's display language (Web/i18n/<lang>.json).
+    var strings = {
+        'button.label': 'Additional material ({format}, {size})',
+        'button.noPermission': '{label}: downloads are not enabled for your account',
+        'button.failed': 'The download could not be started. Try again in a moment.'
+    };
+    var stringsLoaded = null;
+
+    function t(key, values) {
+        var text = strings[key] || key;
+        Object.keys(values || {}).forEach(function (name) {
+            text = text.split('{' + name + '}').join(values[name]);
+        });
+        return text;
+    }
+
+    function loadStrings(client) {
+        if (!stringsLoaded) {
+            var lang = document.documentElement.getAttribute('lang') || navigator.language || 'en';
+            stringsLoaded = fetch(client.getUrl('AdditionalMaterial/web/strings', { lang: lang }))
+                .then(function (r) { return r.ok ? r.json() : {}; })
+                .then(function (loaded) { Object.keys(loaded).forEach(function (k) { strings[k] = loaded[k]; }); })
+                .catch(function () { /* keep the built-in English */ });
+        }
+        return stringsLoaded;
+    }
     var cache = {};
     var scheduled = false;
 
@@ -70,6 +96,7 @@
             })
             .catch(function (err) {
                 window.console && console.warn('Additional Material: download failed', err);
+                button.title = t('button.failed');
             })
             .finally(function () { button.disabled = false; });
     }
@@ -81,9 +108,9 @@
         button.type = 'button';
         button.className = 'emby-button button-flat detailButton ' + BUTTON_CLASS;
         button.dataset.itemId = itemId;
-        var label = 'Additional material (' + String(info.Format || '').toUpperCase() + ', ' + formatSize(info.Size) + ')';
+        var label = t('button.label', { format: String(info.Format || '').toUpperCase(), size: formatSize(info.Size) });
         if (!info.CanDownload) {
-            label += ': downloads are not enabled for your account';
+            label = t('button.noPermission', { label: label });
             button.disabled = true;
         }
         button.title = label;
@@ -118,7 +145,8 @@
         if (!bar || bar.querySelector('.' + BUTTON_CLASS + '[data-item-id="' + itemId + '"]')) {
             return;
         }
-        fetchInfo(client, itemId).then(function (info) {
+        Promise.all([fetchInfo(client, itemId), loadStrings(client)]).then(function (results) {
+            var info = results[0];
             if (!info || !info.Available || currentItemId() !== itemId) {
                 return;
             }

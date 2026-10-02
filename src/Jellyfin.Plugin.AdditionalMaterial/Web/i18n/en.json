@@ -1,0 +1,16 @@
+{
+  "button.label": "Additional material ({format}, {size})",
+  "button.noPermission": "{label}: downloads are not enabled for your account",
+  "button.failed": "The download could not be started. Try again in a moment.",
+  "config.title": "Additional Material",
+  "config.intro": "Offers a download button on items that have an archive stored beside them:",
+  "config.folderArchive": "additional-material.zip in a series (course) or season (section) folder",
+  "config.videoArchive": "<video file name>.material.zip beside an episode (lesson) or movie",
+  "config.libraries": "Libraries",
+  "config.librariesHelp": "The plugin only looks in the libraries ticked here.",
+  "config.requireDownload": "Require the \"Allow media downloading\" permission",
+  "config.requireDownloadHelp": "Users without it see the button disabled. This is the permission Jellyfin's own Download button uses.",
+  "config.linkMinutes": "Download link lifetime (minutes)",
+  "config.linkMinutesHelp": "How long a download has to start after the button is pressed.",
+  "config.save": "Save"
+}

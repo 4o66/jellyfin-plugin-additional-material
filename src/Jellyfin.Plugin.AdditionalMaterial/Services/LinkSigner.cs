@@ -57,7 +57,9 @@ public sealed class LinkSigner
             return false;
         }
 
-        if (buffer.Length != PayloadLength + MacLength)
+        // Only the canonical spelling is accepted: base64url leaves unused bits in the last
+        // character, so several strings can decode to the same bytes.
+        if (buffer.Length != PayloadLength + MacLength || !string.Equals(WebEncoders.Base64UrlEncode(buffer), token, StringComparison.Ordinal))
         {
             return false;
         }

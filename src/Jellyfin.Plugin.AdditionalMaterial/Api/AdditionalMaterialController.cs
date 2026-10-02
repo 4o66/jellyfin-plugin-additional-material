@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
+using System.Text.Json;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
@@ -152,6 +155,61 @@ public class AdditionalMaterialController : ControllerBase
 
         Response.Headers["Cache-Control"] = "public, max-age=3600";
         return File(stream, "application/javascript; charset=utf-8");
+    }
+
+    /// <summary>
+    /// The web script's and settings page's text in the requested language, with English for
+    /// anything a translation lacks. Translations are Web/i18n/&lt;language&gt;.json.
+    /// </summary>
+    /// <param name="lang">A language tag such as <c>de-DE</c>; tries <c>de-DE</c>, then <c>de</c>, then <c>en</c>.</param>
+    /// <returns>A key-to-text map.</returns>
+    [HttpGet("web/strings")]
+    [AllowAnonymous]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<Dictionary<string, string>> Strings([FromQuery] string? lang)
+    {
+        var result = ReadStrings("en") ?? new Dictionary<string, string>();
+        var tag = (lang ?? string.Empty).Trim().Replace('_', '-');
+        var candidates = new List<string>();
+        if (tag.Length > 0 && tag.Length <= 20 && System.Text.RegularExpressions.Regex.IsMatch(tag, "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"))
+        {
+            var dash = tag.IndexOf('-', StringComparison.Ordinal);
+            if (dash > 0)
+            {
+                candidates.Add(tag[..dash].ToLowerInvariant());
+            }
+
+            candidates.Add(tag.ToLowerInvariant());
+        }
+
+        foreach (var candidate in candidates)
+        {
+            var strings = ReadStrings(candidate);
+            if (strings is not null)
+            {
+                foreach (var pair in strings)
+                {
+                    result[pair.Key] = pair.Value;
+                }
+            }
+        }
+
+        Response.Headers["Cache-Control"] = "public, max-age=3600";
+        return result;
+    }
+
+    private static Dictionary<string, string>? ReadStrings(string language)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var name = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith(".Web.i18n." + language + ".json", StringComparison.OrdinalIgnoreCase));
+        if (name is null)
+        {
+            return null;
+        }
+
+        using var stream = assembly.GetManifestResourceStream(name);
+        return stream is null ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(stream);
     }
 
     private static bool CanDownload(User user) =>

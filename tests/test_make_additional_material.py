@@ -423,7 +423,7 @@ class RuleFiles(unittest.TestCase):
             touch(c / "1 - a.mp4"); touch(c / "1 - Answer Key.pdf"); touch(c / "Bonus Resources.txt", b"https://x.example\n")
             _, _, report = run(str(c), "--rules", str(rules))
             reasons = {Path(x["file"]).name: x["reason"] for x in report["skipped"]}
-            self.assertEqual(reasons["1 - Answer Key.pdf"], "answer key")
+            self.assertEqual(reasons["1 - Answer Key.pdf"], "answer key [rule skip-answer-keys]")
             self.assertIn("Bonus Resources.txt", reasons)
             _, _, report = run(str(c), "--disable-rule", "link-only-text", "--disable-rule", "release-group-adverts")
             self.assertNotIn("Bonus Resources.txt", {Path(x["file"]).name for x in report["skipped"]})
@@ -434,6 +434,43 @@ class RuleFiles(unittest.TestCase):
                 mam.main(["--list-rules", "--rules", str(rules)])
             self.assertIn("skip-answer-keys", out.getvalue())
             self.assertIn("udemy-redirect-placeholders", out.getvalue())
+
+
+class PlacementAndLanguage(unittest.TestCase):
+    def test_report_says_why_each_file_is_where_it_is(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            c = Path(tmp, "C"); s = c / "1 - S"
+            touch(s / "1 - a.mp4"); touch(s / "1 - a.pdf"); touch(s / "2 - b.mp4"); touch(s / "2 - b notes.txt", b"notes for b")
+            touch(s / "attached_files" / "1 - a" / "x.png"); touch(s / "9 - text lesson.html", b"<p>" + b"words " * 20 + b"</p>")
+            _, out, report = run(str(c), "-v")
+            how = {Path(k).name: v for a in report["courses"][0]["archives"] for k, v in a["placement"].items()}
+            self.assertEqual(how["1 - a.pdf"], "same name as the video 1 - a.mp4")
+            self.assertEqual(how["2 - b notes.txt"], "lesson number 2, the only video 2 - b.mp4")
+            self.assertIn("[rule lesson-attachment-folders]", how["x.png"])
+            self.assertEqual(how["9 - text lesson.html"], "in the section, not tied to one lesson")
+            self.assertIn("<- same name as the video", out)
+
+    def test_note_language_falls_back_to_english(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            c = Path(tmp, "C"); touch(c / "1 - a.mp4"); touch(c / "1 - a tool.exe", b"MZ")
+            run(str(c), "--apply", "--language", "xx-YY")       # no such translation: English
+            with zipfile.ZipFile(c / "1 - a.material.zip") as z:
+                note = z.read("1 - a tool.exe.REMOVED.txt").decode()
+            self.assertTrue(note.startswith("REMOVED: 1 - a tool.exe"))
+            self.assertIn("SHA-256:", note)
+            self.assertEqual(mam.set_language("de_DE.UTF-8"), "en")   # only English ships today
+            mam.set_language("en")
+
+    def test_every_translation_has_only_known_keys(self):
+        for folder in (mam.I18N_DIR, Path(__file__).resolve().parent.parent / "src/Jellyfin.Plugin.AdditionalMaterial/Web/i18n"):
+            english = json.loads((folder / "en.json").read_text())
+            for f in folder.glob("*.json"):
+                with self.subTest(file=str(f)):
+                    data = json.loads(f.read_text())
+                    self.assertEqual(set(data) - set(english), set(), f"{f.name} has keys English lacks")
+                    for k, v in data.items():
+                        placeholders = set(__import__("re").findall(r"\{(\w+)\}", english[k]))
+                        self.assertEqual(set(__import__("re").findall(r"\{(\w+)\}", v)), placeholders, f"{f.name}: {k}")
 
 
 if __name__ == "__main__":

@@ -10,19 +10,17 @@
             <div class="content-primary">
                 <form id="AdditionalMaterialConfigForm">
                     <div class="verticalSection">
-                        <h2 class="sectionTitle">Additional Material</h2>
-                        <p>
-                            Offers a download button on items that have an archive stored beside them:
-                        </p>
+                        <h2 class="sectionTitle" data-i18n="config.title">Additional Material</h2>
+                        <p data-i18n="config.intro">Offers a download button on items that have an archive stored beside them:</p>
                         <ul>
-                            <li><code>additional-material.zip</code> in a series (course) or season (section) folder</li>
-                            <li><code>&lt;video file name&gt;.material.zip</code> beside an episode (lesson) or movie</li>
+                            <li data-i18n="config.folderArchive">additional-material.zip in a series (course) or season (section) folder</li>
+                            <li data-i18n="config.videoArchive">&lt;video file name&gt;.material.zip beside an episode (lesson) or movie</li>
                         </ul>
                     </div>
 
                     <div class="verticalSection">
-                        <h3 class="sectionTitle">Libraries</h3>
-                        <div class="fieldDescription">The plugin only looks in the libraries ticked here.</div>
+                        <h3 class="sectionTitle" data-i18n="config.libraries">Libraries</h3>
+                        <div class="fieldDescription" data-i18n="config.librariesHelp">The plugin only looks in the libraries ticked here.</div>
                         <div id="amLibraries" class="checkboxList paperList" style="padding: 0.5em 1em;"></div>
                     </div>
 
@@ -30,21 +28,19 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="amRequireDownload" type="checkbox" is="emby-checkbox" />
-                                <span>Require the "Allow media downloading" permission</span>
+                                <span data-i18n="config.requireDownload">Require the "Allow media downloading" permission</span>
                             </label>
-                            <div class="fieldDescription checkboxFieldDescription">
-                                Users without it see the button disabled. This is the permission Jellyfin's own Download button uses.
-                            </div>
+                            <div class="fieldDescription checkboxFieldDescription" data-i18n="config.requireDownloadHelp">Users without it see the button disabled. This is the permission Jellyfin's own Download button uses.</div>
                         </div>
                         <div class="inputContainer">
-                            <input id="amLinkMinutes" type="number" is="emby-input" min="1" max="1440" label="Download link lifetime (minutes)" />
-                            <div class="fieldDescription">How long a download has to start after the button is pressed.</div>
+                            <input id="amLinkMinutes" type="number" is="emby-input" min="1" max="1440" label="Download link lifetime (minutes)" data-i18n-label="config.linkMinutes" />
+                            <div class="fieldDescription" data-i18n="config.linkMinutesHelp">How long a download has to start after the button is pressed.</div>
                         </div>
                     </div>
 
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
-                            <span>Save</span>
+                            <span data-i18n="config.save">Save</span>
                         </button>
                     </div>
                 </form>
@@ -85,7 +81,27 @@
                     page.querySelector('#amLinkMinutes').value = config.LinkLifetimeMinutes || 10;
                 }
 
+                function translate() {
+                    var lang = document.documentElement.getAttribute('lang') || navigator.language || 'en';
+                    return fetch(ApiClient.getUrl('AdditionalMaterial/web/strings', { lang: lang }))
+                        .then(function (r) { return r.ok ? r.json() : {}; })
+                        .then(function (strings) {
+                            page.querySelectorAll('[data-i18n]').forEach(function (el) {
+                                var text = strings[el.getAttribute('data-i18n')];
+                                if (text) { el.textContent = text; }
+                            });
+                            page.querySelectorAll('[data-i18n-label]').forEach(function (el) {
+                                var text = strings[el.getAttribute('data-i18n-label')];
+                                var label = text && el.parentNode && el.parentNode.querySelector('label');
+                                if (text) { el.setAttribute('label', text); }
+                                if (label) { label.textContent = text; }
+                            });
+                        })
+                        .catch(function () { /* keep the built-in English */ });
+                }
+
                 page.addEventListener('pageshow', function () {
+                    translate();
                     Dashboard.showLoadingMsg();
                     Promise.all([ApiClient.getPluginConfiguration(pluginId), ApiClient.getVirtualFolders()]).then(function (results) {
                         render(results[0], results[1] || []);

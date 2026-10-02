@@ -89,6 +89,7 @@ class Group:
     files: list[Path] = field(default_factory=list)
     removed: dict[Path, str] = field(default_factory=dict)  # file -> why it becomes a note
     scans: dict[Path, dict] = field(default_factory=dict)   # file -> VirusTotal result
+    placement: dict[Path, str] = field(default_factory=dict)  # file -> why it is in this archive
 
 
 def lesson_number(name: str) -> str | None:
@@ -562,21 +563,52 @@ def describe_scan(scan: dict | None) -> str:
     return f"VirusTotal: lookup failed ({scan.get('error', 'error')})"
 
 
+# ---- text for the notes users read (tools/i18n/<language>.json) --------------------------------
+I18N_DIR = Path(__file__).resolve().parent / "i18n"
+_TEXT: dict[str, str] = {}
+
+
+def set_language(tag: str | None) -> str:
+    """Loads note text for a language tag such as de_DE.UTF-8, de-DE or de, with English for gaps.
+    Returns the language actually used."""
+    global _TEXT
+    text = json.loads((I18N_DIR / "en.json").read_text(encoding="utf-8"))
+    used = "en"
+    tag = (tag or "").split(".")[0].replace("_", "-").lower()
+    for candidate in ([tag.split("-")[0], tag] if "-" in tag else [tag]):
+        f = I18N_DIR / f"{candidate}.json"
+        if candidate and candidate != "en" and re.fullmatch(r"[a-z]{2,3}(-[a-z0-9]{2,8})*", candidate) and f.is_file():
+            text.update(json.loads(f.read_text(encoding="utf-8")))
+            used = candidate
+    _TEXT = text
+    return used
+
+
+def tr(key: str, **values) -> str:
+    if not _TEXT:
+        set_language("en")
+    out = _TEXT.get(key, key)
+    for k, v in values.items():
+        out = out.replace("{" + k + "}", str(v))
+    return out
+
+
 def removal_note(path: Path, base: Path, why: str, scan: dict | None) -> str:
     digest = sha256_of(path)
+    labels = [tr("note.file"), tr("note.size"), "SHA-256", tr("note.scan")]
+    width = max(len(x) for x in labels) + 2
+    row = lambda label, value: f"  {(label + ':').ljust(width)}{value}\n"  # noqa: E731
     return (
-        f"REMOVED: {path.name}\n\n"
-        f"This file was left out of the Additional Material archive because {why}.\n"
-        "Executable and active content in course downloads is a common way malware spreads, so it\n"
-        "is not handed out automatically.\n\n"
-        f"  File:    {path.relative_to(base).as_posix()}\n"
-        f"  Size:    {path.stat().st_size} bytes\n"
-        f"  SHA-256: {digest}\n"
-        f"  Scan:    {describe_scan(scan)}\n\n"
-        "The original is still on the server. You can look the SHA-256 up before deciding to trust it:\n"
+        f"{tr('note.title', name=path.name)}\n\n"
+        f"{tr('note.because', why=why)}\n"
+        f"{tr('note.risk')}\n\n"
+        + row(tr("note.file"), path.relative_to(base).as_posix())
+        + row(tr("note.size"), tr("note.bytes", n=path.stat().st_size))
+        + row("SHA-256", digest)
+        + row(tr("note.scan"), describe_scan(scan))
+        + f"\n{tr('note.lookup')}\n"
         f"  https://www.virustotal.com/gui/search/{digest}\n\n"
-        "An administrator can include such files by re-running make_additional_material.py with\n"
-        "--allow-executables (programs and scripts) or --allow-active-documents (documents).\n")
+        f"{tr('note.override')}\n")
 
 
 # ---- planning --------------------------------------------------------------------------------
@@ -587,7 +619,7 @@ class Planner:
         self.rules = args.loaded_rules
         self.skip_rules = [r for r in self.rules if r.action == "skip"]
         self.attachment_dirs = set().union(*(r.folder_names for r in self.rules if r.action == "attachment-folder"))
-        self.quiet_reasons = {r.reason for r in self.skip_rules if r.quiet}
+        self.quiet_reasons = {f"{r.reason} [rule {r.id}]" for r in self.skip_rules if r.quiet}
         self.skipped: list[tuple[str, str]] = []
         self.blocked: dict[Path, str] = {}
         self.scans: dict[Path, dict] = {}
@@ -624,7 +656,7 @@ class Planner:
 
             for rule in self.skip_rules:
                 if rule.matches(path.name, size, read):
-                    return rule.reason
+                    return f"{rule.reason} [rule {rule.id}]"
         if is_trigger(path.name):
             return "existing Additional Material archive"
         for pattern in self.excludes:
@@ -702,40 +734,54 @@ class Planner:
         levels = {"course"} if single else set(self.args.levels)
         groups: dict[Path, Group] = {}
 
-        def add(level: str, archive: Path, base: Path, path: Path) -> None:
+        def add(level: str, archive: Path, base: Path, path: Path, how: str) -> None:
             g = groups.setdefault(archive, Group(level, archive, base))
             g.files.append(path)
+            g.placement[path] = how
             if path in self.blocked:
                 g.removed[path] = self.blocked[path]
             if path in self.scans:
                 g.scans[path] = self.scans[path]
 
+        packaged_note = None
+        if single:
+            packaged_note = (f"whole course packaged as one archive: no videos in {', '.join(d.name for d in video_less)}"
+                             if video_less else "whole course packaged as one archive (--package always)")
         for path in material:
             self.screen(path)
-            lesson = self.match_lesson(path, videos_by_dir) if "lesson" in levels else None
-            if lesson is not None:
-                add("lesson", lesson.with_name(lesson.stem + TRIGGER_SUFFIX), lesson.parent, path)
+            match = self.match_lesson(path, videos_by_dir) if "lesson" in levels else None
+            if match is not None:
+                lesson, how = match
+                add("lesson", lesson.with_name(lesson.stem + TRIGGER_SUFFIX), lesson.parent, path, how)
                 continue
             section = next((s for s in sections if path.is_relative_to(s)), None)
             if section is not None and "section" in levels:
-                add("section", section / TRIGGER_FOLDER, section, path)
+                add("section", section / TRIGGER_FOLDER, section, path, "in the section, not tied to one lesson")
             elif "course" in levels:
-                add("course", course / TRIGGER_FOLDER, course, path)
+                if packaged_note:
+                    how = packaged_note
+                elif section is None and path.parent != course:
+                    how = "in a folder with no videos (no Jellyfin page for it)"
+                elif path.parent == course:
+                    how = "in the course folder"
+                else:
+                    how = f"rolled up to the course (--levels {','.join(self.args.levels)})"
+                add("course", course / TRIGGER_FOLDER, course, path, how)
             else:
                 self.skipped.append((str(path), "its level is not enabled (--levels)"))
         return sorted(groups.values(), key=lambda g: str(g.archive))
 
-    def match_lesson(self, path: Path, videos_by_dir: dict[Path, list[Path]]) -> Path | None:
-        def in_folder(folder: Path, stem: str) -> Path | None:
+    def match_lesson(self, path: Path, videos_by_dir: dict[Path, list[Path]]) -> tuple[Path, str] | None:
+        def in_folder(folder: Path, stem: str) -> tuple[Path, str] | None:
             videos = videos_by_dir.get(folder, [])
             for v in videos:
                 if v.stem.lower() == stem.lower():
-                    return v
+                    return v, f"same name as the video {v.name}"
             if self.args.match == "name":
                 return None
             num = lesson_number(stem)
             hits = [v for v in videos if num is not None and lesson_number(v.stem) == num]
-            return hits[0] if len(hits) == 1 else None
+            return (hits[0], f"lesson number {num}, the only video {hits[0].name}") if len(hits) == 1 else None
 
         first_stem = path.name.split(".")[0]  # "x.pdf.pdf" -> "x"
         hit = in_folder(path.parent, path.stem) or in_folder(path.parent, first_stem)
@@ -746,7 +792,8 @@ class Planner:
             if parts[i].lower() in self.attachment_dirs:
                 found = in_folder(Path(*parts[:i]), parts[i + 1])
                 if found:
-                    return found
+                    rule = next((r.id for r in self.rules if r.action == "attachment-folder" and parts[i].lower() in r.folder_names), "?")
+                    return found[0], f"in {parts[i]}/{parts[i + 1]}/ [rule {rule}], lesson {found[0].name}"
         return None
 
 
@@ -884,6 +931,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--update", action="store_true", help="rebuild archives older than any of their files")
     p.add_argument("--force", action="store_true", help="rebuild every archive")
     p.add_argument("--chown", metavar="UID:GID", help="owner for written archives, e.g. 99:100 on Unraid")
+    p.add_argument("--language", metavar="TAG",
+                   help="language for the notes placed in archives, e.g. de or pt-BR (default: from LANG; English if no translation)")
     p.add_argument("--json", metavar="FILE", help="also write a JSON report to FILE ('-' for standard output)")
     p.add_argument("-q", "--quiet", action="store_true", help="print only problems and the summary")
     p.add_argument("-v", "--verbose", action="store_true", help="list every file, and every skipped file with the reason")
@@ -899,6 +948,7 @@ def main(argv: list[str] | None = None) -> int:
         p.error("--levels takes lesson, section and/or course")
     if args.chown and not re.fullmatch(r"\d+(:\d+)?", args.chown):
         p.error("--chown takes UID or UID:GID (numbers)")
+    set_language(args.language or os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG"))
     rule_dirs = ([] if args.no_default_rules else [DEFAULT_RULES]) + (args.rules or [])
     try:
         args.loaded_rules = load_rules(rule_dirs, args.disable_rule)
@@ -942,10 +992,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.verbose:
                 for f in g.files:
                     mark = "x" if f in g.removed else "+"
-                    say(f"                 {mark} {f.relative_to(g.base)}" + (f"  [{g.removed[f]}]" if f in g.removed else ""))
+                    say(f"                 {mark} {f.relative_to(g.base)}  <- {g.placement.get(f, '')}"
+                        + (f"  [REMOVED: {g.removed[f]}]" if f in g.removed else ""))
             entry["archives"].append({
                 "level": g.level, "status": status, "archive": str(g.archive),
                 "files": [str(f) for f in g.files if f not in g.removed],
+                "placement": {str(f): g.placement.get(f, "") for f in g.files},
                 "removed": [{"file": str(f), "reason": r, "scan": g.scans.get(f)} for f, r in g.removed.items()]})
         if not groups:
             say("   (no additional material found)")
