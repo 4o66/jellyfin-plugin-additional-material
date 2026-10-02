@@ -87,6 +87,10 @@ dotnet run --project tools/planner-compare -- /tmp/am-lib --rules tools/rules --
 python3 tools/planner-compare/compare.py /tmp/py.json /tmp/cs.json
 ```
 
+Run the script without a 7z program on `PATH` for this: the plugin has none, so it cannot
+look inside `.7z` and `.rar` archives and replaces them with a note, where the script with 7z
+lists them. That is the one intended difference.
+
 A new check deserves a new fixture in `fixtures.py`, so both sides are held to it.
 
 ## Adding a translation

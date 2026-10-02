@@ -6,7 +6,9 @@ files (in order), placement reasons, removals, entry names and skips. Exit 0 whe
   dotnet PlannerCompare.dll LIB --rules tools/rules --json cs.json
   python tools/planner-compare/compare.py py.json cs.json
 
-Run both on the same path: the reports name files by absolute path."""
+Run both on the same path: the reports name files by absolute path. Run the script without a 7z
+program on PATH: the plugin has none, so it treats .7z and .rar archives as uncheckable (and
+replaces them with a note), while the script lists them when it finds 7z."""
 import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

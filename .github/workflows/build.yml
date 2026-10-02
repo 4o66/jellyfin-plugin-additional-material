@@ -40,7 +40,10 @@ jobs:
       - name: Plan the fixture library with both, and compare
         run: |
           python tools/planner-compare/fixtures.py "$RUNNER_TEMP/lib"
-          python tools/make_additional_material.py "$RUNNER_TEMP/lib" --json py.json -q
+          # The plugin has no 7z program, so it cannot look inside .7z/.rar archives; run the script
+          # without one too (the runner has 7z), so both treat them the same way.
+          mkdir -p "$RUNNER_TEMP/no7z" && ln -sf "$(command -v python)" "$RUNNER_TEMP/no7z/python"
+          PATH="$RUNNER_TEMP/no7z" python tools/make_additional_material.py "$RUNNER_TEMP/lib" --json py.json -q
           dotnet pc/PlannerCompare.dll "$RUNNER_TEMP/lib" --rules tools/rules --json cs.json
           python tools/planner-compare/compare.py py.json cs.json
 
