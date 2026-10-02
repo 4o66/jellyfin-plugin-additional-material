@@ -11,6 +11,9 @@ plugins folder.
   python3 tests/integration.py --base http://127.0.0.1:8096 --work C:\\am-test \\
       --log-dir C:\\ProgramData\\Jellyfin\\Server\\log --data-dir C:\\ProgramData\\Jellyfin\\Server
 
+  The .deb install: --work /var/tmp/am-test --log-dir /var/log/jellyfin --data-dir /var/lib/jellyfin
+  (both folders are group adm, so a member of adm can run it without root).
+
   --work      scratch folder: sample media, creds and run.json are written here (deleted first)
   --log-dir   the server's log folder (checks the index was built at startup)
   --data-dir  the server's data folder, holding plugins/ (checks signing.key's permissions)
@@ -413,7 +416,8 @@ def refresh():
 
 
 if args.log_dir:
-    logs = sorted(glob.glob(os.path.join(args.log_dir, "log_*.log")), key=os.path.getmtime)
+    # log_<date>.log by default; the .deb's /etc/jellyfin/logging.json names them jellyfin<date>.log.
+    logs = sorted(glob.glob(os.path.join(args.log_dir, "*.log")), key=os.path.getmtime)
     text = open(logs[-1], encoding="utf-8", errors="replace").read() if logs else ""
     check("index built at startup", "Additional Material: indexed" in text, True)
 else:
