@@ -1,0 +1,14 @@
+id = "lesson-attachment-folders"
+description = "Folders that downloaders use for a lesson's files: <folder>/<lesson name or number>/"
+action = "attachment-folder"
+
+[match]
+folder_names = ["attached_files", "attachments", "resources"]
+
+[[test]]
+folder = "attached_files"
+expect = "match"
+
+[[test]]
+folder = "Labs"
+expect = "no-match"

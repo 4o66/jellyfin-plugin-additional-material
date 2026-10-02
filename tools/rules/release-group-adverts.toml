@@ -1,0 +1,33 @@
+id = "release-group-adverts"
+description = "Advert files that course-sharing sites add to their downloads, by name"
+action = "skip"
+reason = "release-group advert"
+
+[match]
+# fnmatch reads [...] as a character set, so a literal "[" is written "[[]".
+names = [
+  "Bonus Resources.txt",
+  "Get Bonus Downloads Here*",
+  "[[] FreeCourseWeb.com ]*",
+  "[[] FreeCourseLab.com ]*",
+  "[[] DevCourseWeb.com ]*",
+  "[[] WebToolTip.com ]*",
+  "[[] CourseBoat.com ]*",
+  "[[] FreeTutorials*",
+]
+
+[[test]]
+name = "Bonus Resources.txt"
+expect = "match"
+
+[[test]]
+name = "[ FreeCourseWeb.com ] Read Me.txt"
+expect = "match"
+
+[[test]]
+name = "1 - Welcome.pdf"
+expect = "no-match"
+
+[[test]]
+name = "Resources.pdf"
+expect = "no-match"

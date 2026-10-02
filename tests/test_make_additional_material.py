@@ -383,5 +383,58 @@ class ActiveContent(unittest.TestCase):
         self.assertIn("2 - macro.docx.REMOVED.txt", got)      # documents still need their own flag
 
 
+class RuleFiles(unittest.TestCase):
+    """Every rule file in tools/rules/ is valid and passes its own [[test]] cases."""
+
+    def test_each_rule_file_passes_its_tests(self):
+        rules = mam.load_rules([mam.DEFAULT_RULES])
+        self.assertGreaterEqual(len(rules), 6)
+        for rule in rules:
+            with self.subTest(rule=rule.id):
+                self.assertTrue(rule.tests, f"{rule.source.name} has no [[test]] cases")
+                self.assertEqual(mam.run_rule_tests(rule), [])
+
+    def write(self, folder: Path, name: str, text: str) -> Path:
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_text(text)
+        return folder
+
+    def test_invalid_rule_files_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = {
+                "typo.toml": 'id = "typo"\ndescription = "d"\naction = "skip"\n[match]\nnmes = ["x"]\n',
+                "wrong-name.toml": 'id = "other"\ndescription = "d"\naction = "skip"\n[match]\nnames = ["x"]\n',
+                "bad-regex.toml": 'id = "bad-regex"\ndescription = "d"\naction = "skip"\n[match]\nname_regex = "("\n',
+                "no-match.toml": 'id = "no-match"\ndescription = "d"\naction = "skip"\n',
+                "bad-action.toml": 'id = "bad-action"\ndescription = "d"\naction = "delete"\n[match]\nnames = ["x"]\n',
+            }
+            for name, text in cases.items():
+                with self.subTest(file=name):
+                    d = self.write(Path(tmp, name), name, text)
+                    with self.assertRaises(mam.RuleError):
+                        mam.load_rules([d])
+
+    def test_user_rules_and_disabling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rules = self.write(Path(tmp, "my-rules"), "skip-answer-keys.toml",
+                               'id = "skip-answer-keys"\ndescription = "Instructor answer keys"\naction = "skip"\n'
+                               'reason = "answer key"\n[match]\nnames = ["*answer key*"]\n')
+            c = Path(tmp, "C")
+            touch(c / "1 - a.mp4"); touch(c / "1 - Answer Key.pdf"); touch(c / "Bonus Resources.txt", b"https://x.example\n")
+            _, _, report = run(str(c), "--rules", str(rules))
+            reasons = {Path(x["file"]).name: x["reason"] for x in report["skipped"]}
+            self.assertEqual(reasons["1 - Answer Key.pdf"], "answer key")
+            self.assertIn("Bonus Resources.txt", reasons)
+            _, _, report = run(str(c), "--disable-rule", "link-only-text", "--disable-rule", "release-group-adverts")
+            self.assertNotIn("Bonus Resources.txt", {Path(x["file"]).name for x in report["skipped"]})
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                mam.main([str(c), "--disable-rule", "no-such-rule"])
+            out = io.StringIO()
+            with redirect_stdout(out):
+                mam.main(["--list-rules", "--rules", str(rules)])
+            self.assertIn("skip-answer-keys", out.getvalue())
+            self.assertIn("udemy-redirect-placeholders", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

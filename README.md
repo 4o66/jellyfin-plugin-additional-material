@@ -79,7 +79,7 @@ Dashboard → Plugins → **Additional Material**:
 ## The helper script
 
 `tools/make_additional_material.py` builds the archives from the files stored with your
-videos. It needs Python 3.10 or newer and nothing else.
+videos. It needs Python 3.11 or newer and nothing else.
 
 ```zsh
 # See what it would do (nothing is written without --apply):
@@ -124,10 +124,17 @@ a common way malware spreads.
 
   Ordinary links, embedded charts and images are fine. `--allow-active-documents` includes them.
 
-Other rules from real course downloads: Udemy redirect placeholders (tiny HTML pages that only
-send the browser to the website), release-group adverts (link-only text files), and chapter
-sidecars (`*_chapters.xml`) are skipped. A file that lost its extension
-(`StudyPlan200301docx`) is named from its content inside the zip.
+**Rules for particular sites and downloaders** are kept as small files in `tools/rules/`, one
+per rule, each with its own test cases. The built-in rules skip Udemy redirect placeholders
+(tiny HTML pages that only send the browser to the website), release-group adverts (by name,
+and any text file that is nothing but links), web shortcuts and system files, and chapter
+sidecars that Jellyfin plugins write (`*_chapters.xml`). One rule recognizes downloaders'
+per-lesson folders (`attached_files/<lesson>/`). `--list-rules` shows them, `--rules DIR` adds
+your own, and `--disable-rule ID` turns one off. See [CONTRIBUTING.md](CONTRIBUTING.md) to add
+one.
+
+A file that lost its extension (`StudyPlan200301docx`) is named from its content inside the
+zip.
 
 **Optional VirusTotal lookups:** with `--virustotal-key KEY` (or `VT_API_KEY`), blocked files
 are looked up by SHA-256 and the result is written into the note. Only fingerprints are sent.

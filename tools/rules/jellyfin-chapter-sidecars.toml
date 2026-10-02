@@ -1,0 +1,20 @@
+id = "jellyfin-chapter-sidecars"
+description = "Chapter and edit-list files that Jellyfin plugins write beside videos"
+action = "skip"
+reason = "Jellyfin chapter data"
+quiet = true
+
+[match]
+name_regex = '(_chapters\.xml|-chapters\.xml|\.edl)$'
+
+[[test]]
+name = "3. Using loops & functions together_chapters.xml"
+expect = "match"
+
+[[test]]
+name = "S01E01.edl"
+expect = "match"
+
+[[test]]
+name = "lab-topology.xml"
+expect = "no-match"

@@ -1,0 +1,33 @@
+id = "link-only-text"
+description = "Small text files that are nothing but web links: adverts, whatever their name"
+action = "skip"
+reason = "link-only text file (advert)"
+
+[match]
+extensions = [".txt", ".text", ""]
+max_size = 2048
+lines_regex = '^\s*(https?://|www\.)\S+\s*$'
+max_lines = 40
+# Several links with one short caption line ("Visit us for more courses") still count.
+allow_caption_lines = 1
+caption_max_length = 60
+
+[[test]]
+name = "Bonus Resources.txt"
+content = "https://freecourseweb.com\r\nhttps://devcourseweb.com\r\nhttps://torrentgalaxy.to\r\n"
+expect = "match"
+
+[[test]]
+name = "Visit Us.txt"
+content = "More courses:\nhttps://a.example\nhttps://b.example\n"
+expect = "match"
+
+[[test]]
+name = "Notes.txt"
+content = "Remember to save your lab configs.\nhttps://example.com\n"
+expect = "no-match"
+
+[[test]]
+name = "lab-answers.txt"
+content = "R1(config)# router ospf 1\nR1(config-router)# network 10.0.0.0 0.255.255.255 area 0\n"
+expect = "no-match"

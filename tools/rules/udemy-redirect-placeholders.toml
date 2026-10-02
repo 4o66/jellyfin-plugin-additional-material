@@ -1,0 +1,26 @@
+id = "udemy-redirect-placeholders"
+description = "Udemy quiz and assignment placeholders: tiny HTML pages that only redirect to the website"
+action = "skip"
+reason = "redirect placeholder (only sends the browser to a website)"
+
+[match]
+extensions = [".html", ".htm"]
+max_size = 4096
+content_regex = '''(window\.)?location(\.href)?\s*=|location\.replace\(|http-equiv\s*=\s*["']?refresh'''
+# Characters of visible text left after removing tags, scripts and styles.
+max_visible_text = 40
+
+[[test]]
+name = "2. Quiz 1.html"
+content = '<script type="text/javascript">window.location = "https://www.udemy.com/course/x/quiz/1";</script>'
+expect = "match"
+
+[[test]]
+name = "1. ITIL 4 Practice Test 1.html"
+content = '<meta http-equiv="refresh" content="0; url=https://www.udemy.com/x">'
+expect = "match"
+
+[[test]]
+name = "3. Lab Setup - FAQ.html"
+content = "<p><strong>I can not see the 64 bit versions of operating systems in VirtualBox.</strong> Enable VT-x in the BIOS.</p>"
+expect = "no-match"

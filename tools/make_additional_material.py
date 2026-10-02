@@ -35,6 +35,11 @@ Exit status: 0 success, 1 some archives failed, 2 bad arguments.
 
 from __future__ import annotations
 
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit(f"make_additional_material.py needs Python 3.11 or newer (this is {sys.version.split()[0]})")
+
 import argparse
 import fnmatch
 import hashlib
@@ -64,26 +69,16 @@ EXECUTABLE_EXT = {".exe", ".dll", ".msi", ".msp", ".bat", ".cmd", ".com", ".scr"
                   # macro-enabled Office files are code
                   ".docm", ".dotm", ".xlsm", ".xltm", ".xlam", ".pptm", ".potm", ".ppsm", ".ppam", ".sldm"}
 NESTED_ARCHIVE_EXT = {".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".bz2", ".xz"}
-DEFAULT_EXCLUDES = ["*.url", "*.torrent", "Thumbs.db", "desktop.ini",
-                    # release-group adverts that come with course downloads
-                    "Bonus Resources.txt", "Get Bonus Downloads Here*",
-                    # fnmatch reads [...] as a character set: "[[]" is a literal "["
-                    "[[] FreeCourseWeb.com ]*", "[[] FreeCourseLab.com ]*", "[[] DevCourseWeb.com ]*",
-                    "[[] WebToolTip.com ]*", "[[] CourseBoat.com ]*", "[[] FreeTutorials*"]
-# Chapter and edit-list sidecars that Jellyfin plugins write beside videos.
-SIDECAR = re.compile(r"(_chapters\.xml|\.edl|-chapters\.xml)$", re.IGNORECASE)
-REDIRECT = re.compile(rb"(window\.)?location(\.href)?\s*=|location\.replace\(|http-equiv\s*=\s*[\"']?refresh", re.IGNORECASE)
-URL_LINE = re.compile(r"^\s*(https?://|www\.)\S+\s*$", re.IGNORECASE)
 JELLYFIN_IMAGE = re.compile(
     r"^(folder|poster|cover|fanart|backdrop\d*|banner|logo|clearart|clearlogo|landscape|thumb|disc|art|"
     r"season\d*-(poster|banner|fanart|landscape)|season-specials-poster|.*-(thumb|poster|fanart|landscape))"
     r"\.(jpe?g|png|webp|gif|tbn)$", re.IGNORECASE)
 JELLYFIN_DIRS = {"extrafanart", "extrathumbs", "metadata"}
-ATTACHMENT_DIRS = {"attached_files", "attachments", "resources"}
 TRIGGER_FOLDER = "additional-material.zip"
 TRIGGER_SUFFIX = ".material.zip"
 LESSON_NUMBER = re.compile(r"^\s*0*(\d{1,4})(?=[\s._\-)\]]|$)")
-QUIET_SKIPS = {"video, subtitle or nfo", "Jellyfin artwork", "hidden or Jellyfin data (dot) file", "Jellyfin chapter data"}
+QUIET_SKIPS = {"video, subtitle or nfo", "Jellyfin artwork", "hidden or Jellyfin data (dot) file"}
+DEFAULT_RULES = Path(__file__).resolve().parent / "rules"
 
 
 @dataclass
@@ -114,37 +109,155 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def is_redirect_stub(path: Path) -> bool:
-    """A tiny HTML page whose only job is to send the browser elsewhere (Udemy quiz placeholders)."""
-    if path.suffix.lower() not in (".html", ".htm"):
-        return False
-    try:
-        if path.stat().st_size > 4096:
-            return False
-        data = path.read_bytes()
-    except OSError:
-        return False
-    if not REDIRECT.search(data):
-        return False
-    text = re.sub(rb"<script.*?</script>|<style.*?</style>|<[^>]+>", b" ", data, flags=re.S | re.I)
-    return len(re.sub(rb"\s+", b"", text)) < 40
+# ---- content rules (tools/rules/*.toml) -------------------------------------------------------
+class RuleError(Exception):
+    pass
 
 
-def is_link_only_text(path: Path) -> bool:
-    """A small text file that is nothing but web links: the release group's advert."""
-    if path.suffix.lower() not in (".txt", ".text", ""):
-        return False
-    try:
-        if path.stat().st_size > 2048:
+RULE_KEYS = {"id", "description", "action", "reason", "quiet", "match", "test"}
+MATCH_KEYS = {"names", "name_regex", "extensions", "max_size", "content_regex", "max_visible_text",
+              "lines_regex", "max_lines", "allow_caption_lines", "caption_max_length", "folder_names"}
+TEST_KEYS = {"name", "content", "folder", "expect"}
+ACTIONS = {"skip", "attachment-folder"}
+TAGS = re.compile(rb"<script.*?</script>|<style.*?</style>|<[^>]+>", re.S | re.I)
+
+
+@dataclass
+class Rule:
+    """One rule file. Every condition given under [match] must hold (they are ANDed)."""
+    id: str
+    description: str
+    action: str
+    reason: str
+    quiet: bool
+    source: Path
+    names: list[str]
+    name_regex: re.Pattern | None
+    extensions: set[str] | None
+    max_size: int | None
+    content_regex: re.Pattern | None
+    max_visible_text: int | None
+    lines_regex: re.Pattern | None
+    max_lines: int
+    allow_caption_lines: int
+    caption_max_length: int
+    folder_names: set[str]
+    tests: list[dict]
+
+    def matches(self, name: str, size: int, read) -> bool:
+        if self.action != "skip":
             return False
-        lines = [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
-    except OSError:
-        return False
-    if not lines or len(lines) > 40:
-        return False
-    other = [line for line in lines if not URL_LINE.match(line)]
-    # Every line a link, or several links with one short caption ("Visit us for more courses").
-    return not other or (len(lines) >= 3 and len(other) == 1 and len(other[0].strip()) <= 60)
+        low = name.lower()
+        if self.names and not any(fnmatch.fnmatchcase(low, n.lower()) for n in self.names):
+            return False
+        if self.name_regex and not self.name_regex.search(name):
+            return False
+        if self.extensions is not None and Path(name).suffix.lower() not in self.extensions:
+            return False
+        if self.max_size is not None and size > self.max_size:
+            return False
+        if self.content_regex is None and self.max_visible_text is None and self.lines_regex is None:
+            return True
+        data = read()
+        if data is None:
+            return False
+        if self.content_regex and not self.content_regex.search(data):
+            return False
+        if self.max_visible_text is not None and len(re.sub(rb"\s+", b"", TAGS.sub(b" ", data))) > self.max_visible_text:
+            return False
+        if self.lines_regex:
+            lines = [line for line in data.decode("utf-8", "replace").splitlines() if line.strip()]
+            if not lines or len(lines) > self.max_lines:
+                return False
+            other = [line for line in lines if not self.lines_regex.match(line)]
+            if other and not (len(lines) >= 3 and len(other) <= self.allow_caption_lines
+                              and all(len(o.strip()) <= self.caption_max_length for o in other)):
+                return False
+        return True
+
+
+def _regex(value, where: str, flags: int, binary: bool = False) -> re.Pattern:
+    try:
+        return re.compile(value.encode() if binary else value, flags)
+    except (re.error, AttributeError) as e:
+        raise RuleError(f"{where}: bad regular expression: {e}") from None
+
+
+def load_rule(path: Path) -> Rule:
+    import tomllib
+    try:
+        doc = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise RuleError(f"{path}: {e}") from None
+    unknown = set(doc) - RULE_KEYS
+    if unknown:
+        raise RuleError(f"{path}: unknown key(s) {sorted(unknown)}; allowed: {sorted(RULE_KEYS)}")
+    match = doc.get("match", {})
+    unknown = set(match) - MATCH_KEYS
+    if unknown:
+        raise RuleError(f"{path}: unknown [match] key(s) {sorted(unknown)}; allowed: {sorted(MATCH_KEYS)}")
+    for k in ("id", "description", "action"):
+        if not isinstance(doc.get(k), str) or not doc[k].strip():
+            raise RuleError(f"{path}: '{k}' is required")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", doc["id"]):
+        raise RuleError(f"{path}: id must be lowercase letters, digits and dashes")
+    if path.stem != doc["id"]:
+        raise RuleError(f"{path}: the file must be named after its id ({doc['id']}.toml)")
+    if doc["action"] not in ACTIONS:
+        raise RuleError(f"{path}: action must be one of {sorted(ACTIONS)}")
+    if doc["action"] == "skip" and not (set(match) - {"folder_names"}):
+        raise RuleError(f"{path}: a skip rule needs at least one [match] condition")
+    if doc["action"] == "attachment-folder" and not match.get("folder_names"):
+        raise RuleError(f"{path}: an attachment-folder rule needs [match] folder_names")
+    for t in doc.get("test", []):
+        if set(t) - TEST_KEYS or t.get("expect") not in ("match", "no-match"):
+            raise RuleError(f"{path}: each [[test]] takes {sorted(TEST_KEYS)} and expect = \"match\" or \"no-match\"")
+    exts = match.get("extensions")
+    return Rule(
+        id=doc["id"], description=doc["description"], action=doc["action"],
+        reason=doc.get("reason", doc["description"]), quiet=bool(doc.get("quiet", False)), source=path,
+        names=list(match.get("names", [])),
+        name_regex=_regex(match["name_regex"], f"{path}: name_regex", re.I) if "name_regex" in match else None,
+        extensions={e.lower() for e in exts} if exts is not None else None,
+        max_size=match.get("max_size"),
+        content_regex=_regex(match["content_regex"], f"{path}: content_regex", re.I, binary=True) if "content_regex" in match else None,
+        max_visible_text=match.get("max_visible_text"),
+        lines_regex=_regex(match["lines_regex"], f"{path}: lines_regex", re.I) if "lines_regex" in match else None,
+        max_lines=int(match.get("max_lines", 40)), allow_caption_lines=int(match.get("allow_caption_lines", 0)),
+        caption_max_length=int(match.get("caption_max_length", 60)),
+        folder_names={f.lower() for f in match.get("folder_names", [])}, tests=list(doc.get("test", [])))
+
+
+def load_rules(dirs: list[Path], disabled: list[str] | None = None) -> list[Rule]:
+    rules: list[Rule] = []
+    seen: dict[str, Path] = {}
+    for d in dirs:
+        if not d.is_dir():
+            raise RuleError(f"{d}: rules folder not found")
+        for f in sorted(d.glob("*.toml")):
+            rule = load_rule(f)
+            if rule.id in seen:
+                raise RuleError(f"{f}: id '{rule.id}' is already used by {seen[rule.id]}")
+            seen[rule.id] = f
+            rules.append(rule)
+    unknown = set(disabled or []) - set(seen)
+    if unknown:
+        raise RuleError(f"--disable-rule: no rule named {', '.join(sorted(unknown))}")
+    return [r for r in rules if r.id not in set(disabled or [])]
+
+
+def run_rule_tests(rule: Rule) -> list[str]:
+    """Runs a rule file's own [[test]] cases; returns failures."""
+    failures = []
+    for t in rule.tests:
+        if rule.action == "attachment-folder":
+            got = t.get("folder", "").lower() in rule.folder_names
+        else:
+            data = t.get("content", "").encode("utf-8")
+            got = rule.matches(t.get("name", "file"), len(data), lambda d=data: d)
+        if got != (t["expect"] == "match"):
+            failures.append(f"{rule.source.name}: expected {t['expect']} for {t.get('name') or t.get('folder')!r}")
+    return failures
 
 
 # ---- active content in documents ---------------------------------------------------------------
@@ -470,7 +583,11 @@ def removal_note(path: Path, base: Path, why: str, scan: dict | None) -> str:
 class Planner:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.excludes = DEFAULT_EXCLUDES + (args.exclude or [])
+        self.excludes = args.exclude or []
+        self.rules = args.loaded_rules
+        self.skip_rules = [r for r in self.rules if r.action == "skip"]
+        self.attachment_dirs = set().union(*(r.folder_names for r in self.rules if r.action == "attachment-folder"))
+        self.quiet_reasons = {r.reason for r in self.skip_rules if r.quiet}
         self.skipped: list[tuple[str, str]] = []
         self.blocked: dict[Path, str] = {}
         self.scans: dict[Path, dict] = {}
@@ -490,12 +607,24 @@ class Planner:
         ext = path.suffix.lower()
         if ext in VIDEO_EXT or ext in SUBTITLE_EXT or ext == ".nfo":
             return "video, subtitle or nfo"
-        if JELLYFIN_IMAGE.match(path.name) or SIDECAR.search(path.name):
-            return "Jellyfin artwork" if JELLYFIN_IMAGE.match(path.name) else "Jellyfin chapter data"
-        if is_redirect_stub(path):
-            return "redirect placeholder (only sends the browser to a website)"
-        if is_link_only_text(path):
-            return "link-only text file (advert)"
+        if JELLYFIN_IMAGE.match(path.name):
+            return "Jellyfin artwork"
+        if self.skip_rules:
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+
+            def read(p=path, limit=1024 * 1024):
+                try:
+                    with open(p, "rb") as f:
+                        return f.read(limit)
+                except OSError:
+                    return None
+
+            for rule in self.skip_rules:
+                if rule.matches(path.name, size, read):
+                    return rule.reason
         if is_trigger(path.name):
             return "existing Additional Material archive"
         for pattern in self.excludes:
@@ -557,7 +686,7 @@ class Planner:
                     continue
                 reason = self.excluded(path, course)
                 if reason:
-                    if reason not in QUIET_SKIPS:
+                    if reason not in QUIET_SKIPS and reason not in self.quiet_reasons:
                         self.skipped.append((str(path), reason))
                     continue
                 material.append(path)
@@ -614,7 +743,7 @@ class Planner:
             return hit
         parts = path.parts  # attached_files/<lesson>/...
         for i in range(len(parts) - 3, 0, -1):
-            if parts[i].lower() in ATTACHMENT_DIRS:
+            if parts[i].lower() in self.attachment_dirs:
                 found = in_folder(Path(*parts[:i]), parts[i + 1])
                 if found:
                     return found
@@ -719,7 +848,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="make_additional_material.py",
         description="Build Additional Material .zip archives (lesson, section and course) from the non-video files stored with your videos.",
         epilog="Dry run unless --apply is given. Original files are never moved or deleted.")
-    p.add_argument("folder", type=Path, help="a course folder, or a library folder that holds courses")
+    p.add_argument("folder", type=Path, nargs="?", help="a course folder, or a library folder that holds courses")
     p.add_argument("--apply", action="store_true", help="write the archives (default: only show what would happen)")
     p.add_argument("--mode", choices=["auto", "course", "library"], default="auto",
                    help="treat FOLDER as one course, as a library of courses, or decide automatically (default)")
@@ -731,6 +860,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "for every course (always), or never")
     p.add_argument("--match", choices=["number", "name"], default="number",
                    help="files join a lesson by same name or lesson number (default), or by same name only")
+    p.add_argument("--rules", action="append", type=Path, metavar="DIR",
+                   help="also load rule files (*.toml) from DIR; repeatable. The built-in rules are in tools/rules/")
+    p.add_argument("--no-default-rules", action="store_true", help="do not load the built-in rules")
+    p.add_argument("--disable-rule", action="append", metavar="ID", help="turn off one rule by its id; repeatable")
+    p.add_argument("--list-rules", action="store_true", help="list the loaded rules and exit")
     p.add_argument("--exclude", action="append", metavar="GLOB", help="skip files matching GLOB (name or path within the course); repeatable")
     p.add_argument("--allow-executables", action="store_true",
                    help="include executable and script content as is (default: replace each with a .REMOVED.txt note)")
@@ -765,6 +899,17 @@ def main(argv: list[str] | None = None) -> int:
         p.error("--levels takes lesson, section and/or course")
     if args.chown and not re.fullmatch(r"\d+(:\d+)?", args.chown):
         p.error("--chown takes UID or UID:GID (numbers)")
+    rule_dirs = ([] if args.no_default_rules else [DEFAULT_RULES]) + (args.rules or [])
+    try:
+        args.loaded_rules = load_rules(rule_dirs, args.disable_rule)
+    except RuleError as e:
+        p.error(str(e))
+    if args.list_rules:
+        for r in args.loaded_rules:
+            print(f"{r.id:<32} {r.action:<18} {r.description}  [{r.source}]")
+        return 0
+    if args.folder is None:
+        p.error("the folder argument is required")
     has_key = bool(args.virustotal_key or os.environ.get("VT_API_KEY"))
     if (args.allow_clean_executables or args.virustotal_upload) and not has_key:
         p.error("--allow-clean-executables and --virustotal-upload need --virustotal-key (or VT_API_KEY)")

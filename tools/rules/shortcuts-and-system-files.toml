@@ -1,0 +1,20 @@
+id = "shortcuts-and-system-files"
+description = "Web shortcuts, torrent files and operating-system clutter"
+action = "skip"
+reason = "shortcut or system file"
+
+[match]
+names = ["*.url", "*.webloc", "*.torrent", "Thumbs.db", "desktop.ini", "ehthumbs.db"]
+
+[[test]]
+name = "Get Bonus Downloads Here.url"
+content = "[InternetShortcut]\nURL=https://example.com"
+expect = "match"
+
+[[test]]
+name = "Thumbs.db"
+expect = "match"
+
+[[test]]
+name = "Lab Guide.pdf"
+expect = "no-match"
