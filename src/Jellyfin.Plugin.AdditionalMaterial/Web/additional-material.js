@@ -54,7 +54,9 @@
         'dialog.openLink': 'Open link \u2197',
         'dialog.opensSite': 'a link to {host}'
     };
-    var settings = { ButtonStyle: 'color', AccentColor: '#00A4DC', ShowOnParents: 'all', ShowOnCards: true, ShowInLists: true };
+    // Filled in by the server when it serves this script; fetched only if missing.
+    var embedded = /*AM_SETTINGS*/null;
+    var settings = Object.assign({ ButtonStyle: 'color', AccentColor: '#00A4DC', ShowOnParents: 'all', ShowOnCards: true, ShowInLists: true }, embedded || {});
     var ready = null;
     var treeCache = {};
     var contentsCache = {};
@@ -64,6 +66,11 @@
     var statusCache = {};
     var statusInFlight = {};
     var statusRetry = 0;
+    // Answers remembered between visits (this browser only): drawn at once, then checked again.
+    var REMEMBER_MS = 7 * 24 * 3600 * 1000;
+    var remembered = null;
+    var rememberKey = null;
+    var revalidate = {};
     var FAILED = {};
     var iconCount = 0;
     var scheduled = false;
@@ -100,14 +107,12 @@
     function load(client) {
         if (!ready) {
             var lang = document.documentElement.getAttribute('lang') || navigator.language || 'en';
-            // Settings decide where icons go, so wait for them (one small request). Translations
-            // only change wording: give them a moment, then draw in English rather than wait.
-            var translations = fetch(client.getUrl('AdditionalMaterial/web/strings', { lang: lang })).then(function (r) { return r.ok ? r.json() : {}; })
+            // Translations only change wording: they load alongside, never holding up the icons.
+            fetch(client.getUrl('AdditionalMaterial/web/strings', { lang: lang })).then(function (r) { return r.ok ? r.json() : {}; })
                 .then(function (loaded) { Object.assign(strings, loaded); }).catch(function () { /* built-in English */ });
-            ready = Promise.all([
-                Promise.race([translations, new Promise(function (resolve) { window.setTimeout(resolve, 300); })]),
-                getJson(client, 'AdditionalMaterial/web/settings').then(function (s) { Object.assign(settings, s); }).catch(function () { /* defaults */ })
-            ]);
+            // Settings decide where icons go: they come with the script; ask only if they did not.
+            ready = embedded ? Promise.resolve() : getJson(client, 'AdditionalMaterial/web/settings')
+                .then(function (s) { Object.assign(settings, s); }).catch(function () { /* defaults */ });
         }
         return ready;
     }
@@ -268,6 +273,7 @@
             '.am-foot button{background:#00a4dc;border:none;color:#fff;border-radius:.3em;padding:.5em 1em;font:inherit;cursor:pointer;}',
             '.am-foot button:disabled{opacity:.4;cursor:default;}',
             '.additionalMaterialIndicator{background:rgba(0,0,0,.7);color:#fff;cursor:pointer;font-size:1.25em;width:1.6em;height:1.6em;}',
+            '.additionalMaterialIndicator.am-corner{position:absolute;left:.3em;bottom:.45em;z-index:1;display:flex;align-items:center;justify-content:center;border-radius:100em;}',
             '.additionalMaterialIndicator svg{width:1em;height:1em;}',
             '.additionalMaterialListButton .additionalMaterialIcon{font-size:1.67em;}',
             '@media (max-width:30em){.am-row{flex-wrap:wrap}.am-row .am-name{flex-basis:calc(100% - 3em)}}'
@@ -646,12 +652,9 @@
             if (!container) {
                 return;
             }
-            var indicators = container.querySelector('.cardIndicators');
-            if (!indicators) {
-                indicators = el('div', 'cardIndicators');
-                container.appendChild(indicators);
-            }
-            var ind = iconElement('indicator additionalMaterialIndicator');
+            // Bottom-left corner of the image: free of Jellyfin's own indicators (top right) and
+            // hover buttons (bottom right), and outside the indicator row Jellyfin rebuilds.
+            var ind = iconElement('indicator additionalMaterialIndicator am-corner');
             ind.title = label;
             ind.setAttribute('role', 'button');
             ind.setAttribute('aria-label', label);
@@ -660,7 +663,7 @@
             // the page-level listener below finds the indicator under the pointer instead.
             ind.dataset.amItem = id;
             ind.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { handler(e); } });
-            indicators.appendChild(ind);   // last in the row: the corner, pushing the count left
+            container.appendChild(ind);
         } else {
             var buttons = elem.querySelector('.listViewUserDataButtons');
             if (!buttons) {
@@ -678,7 +681,50 @@
         }
     }
 
+    function recall(client) {
+        if (remembered) {
+            return;
+        }
+        remembered = {};
+        try {
+            var user = typeof client.getCurrentUserId === 'function' ? client.getCurrentUserId() : '';
+            rememberKey = 'additionalMaterial.status.v1.' + (typeof client.serverId === 'function' ? client.serverId() : '') + '.' + user;
+            var stored = JSON.parse(window.localStorage.getItem(rememberKey) || '{}');
+            var now = Date.now();
+            Object.keys(stored).forEach(function (id) {
+                var e = stored[id];
+                if (e && now - e[1] < REMEMBER_MS) {
+                    remembered[id] = e;
+                    if (!(id in statusCache)) {
+                        statusCache[id] = e[0] || false;
+                        revalidate[id] = true;   // shown from memory: ask the server once more
+                    }
+                }
+            });
+        } catch (e) {
+            remembered = {};   // storage blocked or corrupt: just ask
+        }
+    }
+
+    function remember(answers) {
+        if (!remembered || !rememberKey) {
+            return;
+        }
+        var now = Date.now();
+        Object.keys(answers).forEach(function (id) { remembered[id] = [answers[id] || 0, now]; });
+        var ids = Object.keys(remembered);
+        if (ids.length > 5000) {
+            ids.sort(function (a, b) { return remembered[a][1] - remembered[b][1]; }).slice(0, ids.length - 5000).forEach(function (id) { delete remembered[id]; });
+        }
+        try {
+            window.localStorage.setItem(rememberKey, JSON.stringify(remembered));
+        } catch (e) {
+            /* storage full or blocked: memory only */
+        }
+    }
+
     function updateLists(client) {
+        recall(client);
         var targets = [];
         if (settings.ShowOnCards) {
             document.querySelectorAll('.card[data-id]').forEach(function (c) { targets.push([c, 'card']); });
@@ -696,6 +742,9 @@
             var id = normId(x[0].getAttribute('data-id'));
             if (id in statusCache) {
                 decorate(client, x[0], x[1], statusCache[id]);
+                if (revalidate[id] && !(id in statusInFlight) && ask.indexOf(id) < 0) {
+                    ask.push(id);
+                }
             } else if (id in statusInFlight) {
                 if (waits.indexOf(statusInFlight[id]) < 0) {
                     waits.push(statusInFlight[id]);
@@ -713,7 +762,13 @@
                 }).then(function (res) {
                     var found = {};
                     Object.keys(res || {}).forEach(function (k) { found[normId(k)] = res[k]; });
-                    chunk.forEach(function (id) { statusCache[id] = found[id] || false; });
+                    var answers = {};
+                    chunk.forEach(function (id) {
+                        statusCache[id] = found[id] || false;
+                        answers[id] = statusCache[id];
+                        delete revalidate[id];
+                    });
+                    remember(answers);
                     statusRetry = 0;
                 }, function () {
                     // Try again shortly (backing off), rather than waiting for the page to change.
@@ -730,11 +785,11 @@
                 waits.push(request);
             })(ask.slice(i, i + 200));
         }
-        if (waits.length) {
-            // Decorate whatever cards are on the page once the answers are in: Jellyfin may have
-            // replaced the ones that were there when the request went out.
-            Promise.all(waits).then(schedule, function () { /* the retry timer handles it */ });
-        }
+        // Draw each answer the moment it arrives, on whatever cards are on the page then
+        // (Jellyfin may have replaced the ones that were there when the request went out).
+        waits.forEach(function (w) {
+            w.then(function () { updateLists(client); }, function () { /* the retry timer handles it */ });
+        });
     }
 
     // ---- wiring ----------------------------------------------------------------------------------
@@ -754,7 +809,7 @@
     function schedule() {
         if (!scheduled) {
             scheduled = true;
-            window.setTimeout(update, 200);
+            window.setTimeout(update, 40);
         }
     }
 

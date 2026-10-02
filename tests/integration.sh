@@ -76,8 +76,8 @@ echo "read-only notes" > "$TD/Season 1/S01E01 - Read Only.txt"; echo "more" > "$
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.5.3.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$OUT/Tomlyn.dll" "$WORK/config/plugins/Additional Material_1.5.3.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.5.4.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$OUT/Tomlyn.dll" "$WORK/config/plugins/Additional Material_1.5.4.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 # A signing key left readable by others (as 1.2.2 and earlier wrote it on Windows) must be replaced.
 KEYFILE="$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/signing.key"
@@ -354,6 +354,7 @@ cfg '.BuildArchives=true'
 
 # ---- web client ----------------------------------------------------------------
 check "script served" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/web/additional-material.js")" 200
+check "script carries the display settings" "$(curl -s "$BASE/AdditionalMaterial/web/additional-material.js" | grep -c 'var embedded = {"ButtonStyle"')" 1
 check "strings: English"           "$(curl -s "$BASE/AdditionalMaterial/web/strings" | jq -r '."config.save"')" Save
 check "strings: unknown language falls back" "$(curl -s "$BASE/AdditionalMaterial/web/strings?lang=xx-YY" | jq -r '."config.save"')" Save
 check "strings: bad tag ignored"   "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/web/strings?lang=../../etc")" 200

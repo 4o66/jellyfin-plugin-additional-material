@@ -605,15 +605,18 @@ public class AdditionalMaterialController : ControllerBase
     public ActionResult Script()
     {
         var assembly = Assembly.GetExecutingAssembly();
-        var stream = assembly.GetManifestResourceStream(typeof(Plugin).Namespace + ".Web.additional-material.js");
+        using var stream = assembly.GetManifestResourceStream(typeof(Plugin).Namespace + ".Web.additional-material.js");
         if (stream is null)
         {
             return NotFound();
         }
 
-        // Always revalidate: the address already changes per build, and an old copy must never linger.
+        // The display settings ride along in the script, so the page can draw icons without first
+        // asking for them. Always revalidated: settings and builds both change what is served.
+        using var reader = new StreamReader(stream);
+        var script = reader.ReadToEnd().Replace("/*AM_SETTINGS*/null", JsonSerializer.Serialize(GetDisplaySettings().Value), StringComparison.Ordinal);
         Response.Headers["Cache-Control"] = "no-cache";
-        return File(stream, "application/javascript; charset=utf-8");
+        return Content(script, "application/javascript; charset=utf-8");
     }
 
     /// <summary>

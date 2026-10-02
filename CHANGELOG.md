@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.4 (2026-10-02)
+
+- Grid and list icons appear about 5–10 times sooner (measured from a card or row appearing to
+  its icon: grid 250–290 ms to 26–62 ms, list 320–420 ms to 19–100 ms, on a local test server).
+  The display settings now come inside the script instead of a separate request; translations
+  load alongside instead of being waited for; each answer is drawn the moment it arrives; new
+  cards are looked at within 40 ms.
+- Return visits draw icons at once from what the browser remembers (up to a week, per user),
+  then confirm with the server.
+- On grid cards the icon sits in the image's bottom-left corner, clear of Jellyfin's own
+  indicators and hover buttons, and outside the indicator row Jellyfin rebuilds.
+
 ## 1.5.3 (2026-10-02)
 
 - One Additional Material button on every page, and it always opens the picker. On course and

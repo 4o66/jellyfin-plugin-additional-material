@@ -45,7 +45,8 @@ The plugin never touches archives it did not build: **a course that already has 
 - **Course and section pages:** the same button opens the picker: every archive at and below that
   level, grouped by section, each expandable to its files, with **Download the course (section)
   archive** at the bottom.
-- **Grid cards and list rows:** a small icon; clicking it opens the listing.
+- **Grid cards and list rows:** a small icon (bottom-left corner of a card, beside the favorite
+  heart in a list); clicking it opens the listing.
 - Zips inside an archive are listed too, and their files downloadable (a setting).
 - Without the Download permission, users see the contents with the download buttons disabled.
 

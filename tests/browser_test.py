@@ -228,13 +228,16 @@ with sync_playwright() as p:
         page.wait_for_selector(".page:not(.hide) .card .additionalMaterialIndicator", timeout=30000)
         check("grid card shows the indicator", True)
         # Jellyfin may redraw the cards between the wait above and this look: retry while it is gone.
-        last = None
+        corner = None
         for _ in range(20):
-            last = page.evaluate("() => { const i = document.querySelector('.page:not(.hide) .additionalMaterialIndicator'); return i ? i.parentElement.classList.contains('cardIndicators') && i === i.parentElement.lastElementChild : null; }")
-            if last is not None:
+            corner = page.evaluate("""() => { const i = document.querySelector('.page:not(.hide) .card .additionalMaterialIndicator');
+                if (!i) return null;
+                const c = i.closest('.cardImageContainer, .cardScalable').getBoundingClientRect(), r = i.getBoundingClientRect();
+                return r.left - c.left < c.width * 0.25 && c.bottom - r.bottom < c.height * 0.2 && r.top > c.top + c.height / 2; }""")
+            if corner is not None:
                 break
             page.wait_for_timeout(250)
-        check("indicator is last in the card's top-right row", bool(last))
+        check("indicator sits in the card's bottom-left corner", bool(corner))
         before = page.url
         # Click where the pointer is, as a person would: the card's hover overlay covers the indicator,
         # and Playwright's locator.click() refuses covered elements.
@@ -320,7 +323,22 @@ with sync_playwright() as p:
         pg.close()
 
     rebuilt("grid", f"{BASE}/web/#/tv?topParentId={training}&serverId={server['Id']}", ".card[data-id]", ".additionalMaterialIndicator",
-            "() => document.querySelectorAll('.card[data-id] .cardIndicators').forEach(c => { c.innerHTML = ''; })")
+            "() => document.querySelectorAll('.card[data-id] .cardIndicators, .card[data-id] .additionalMaterialIndicator').forEach(c => { if (c.classList.contains('additionalMaterialIndicator')) c.remove(); else c.innerHTML = ''; })")
+
+    # Return visit: icons drawn from what this browser remembers, before the server has answered.
+    remembered = ctx.new_page()
+    held2 = []
+    remembered.route("**/AdditionalMaterial/Items/Status", lambda route: held2.append(route))
+    remembered.goto(f"{BASE}/web/#/tv?topParentId={training}&serverId={server['Id']}")
+    try:
+        remembered.wait_for_selector(".page:not(.hide) .card .additionalMaterialIndicator", timeout=20000)
+        check("return visit: icons drawn from memory before the server answers", True)
+        check("return visit: the server is still asked, to confirm", len(held2) >= 1, str(len(held2)))
+    except Exception as e:  # noqa: BLE001
+        check("return visit: icons drawn from memory before the server answers", False, f"held={len(held2)} " + str(e)[:100])
+    for r in held2:
+        r.continue_()
+    remembered.close()
     rebuilt("list", f"{BASE}/web/#/details?id={season1}&serverId={server['Id']}", ".listItem[data-id]", ".additionalMaterialListButton",
             "() => document.querySelectorAll('.additionalMaterialListButton').forEach(b => b.remove())")
 
