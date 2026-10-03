@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.0 (unreleased)
+
+- **Rules in the settings** (Settings → Rules): every rule building uses is listed, and can be
+  turned off, edited (an edited built-in rule replaces the original until reset) or added, in the
+  rule file format. **Check** validates a rule and runs its own test cases; one that fails cannot
+  be used. **Download the rules** gives the rules that are on as a zip for the helper script
+  (`--no-default-rules --rules DIR`). Saving changed rules plans the courses again.
+- **VirusTotal** (Settings → VirusTotal, optional): with an API key, files replaced by a note are
+  looked up by SHA-256 (nothing is uploaded), in the background at the free API's 4 a minute, and
+  the answer goes in the note, as the helper script writes it, and in the contents view (a flagged
+  file is marked). Answers are remembered; when one arrives the course is planned and built again.
+  Optionally, programs VirusTotal knows and no engine flags are included. The page says how to get
+  a free key, with links, and has a **Test key** button. A used-up quota pauses lookups for an hour.
+
 ## 1.5.4 (2026-10-02)
 
 - Grid and list icons appear about 5–10 times sooner (measured from a card or row appearing to

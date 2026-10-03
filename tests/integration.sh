@@ -10,6 +10,9 @@ set -uo pipefail
 
 IMAGE=${IMAGE:-jellyfin/jellyfin:12.1.20260915-010956}
 NAME=am-test-jellyfin
+VT=am-test-vt            # a fake VirusTotal (tests/fake_virustotal.py) the server reaches by name
+NET=am-test-net
+VT_IMAGE=${VT_IMAGE:-python:3-alpine}
 PORT=${PORT:-18096}
 WORK=${WORK:-/tmp/am-test}
 GUID=10121f36-d2e1-4b8d-96c4-b2cc720880f3
@@ -17,7 +20,8 @@ BASE="http://127.0.0.1:$PORT"
 CLIENT='MediaBrowser Client="am-test", Device="am-test", DeviceId="am-test-1", Version="1.0"'
 
 if [[ ${1:-} == --cleanup ]]; then
-  docker rm -f "$NAME" >/dev/null 2>&1
+  docker rm -f "$NAME" "$VT" >/dev/null 2>&1
+  docker network rm "$NET" >/dev/null 2>&1
   rm -rf "$WORK"
   echo "cleaned up"
   exit 0
@@ -30,7 +34,8 @@ ok()   { echo "PASS  $*"; pass=$((pass + 1)); }
 bad()  { echo "FAIL  $*"; fail=$((fail + 1)); }
 check() { if [[ $2 == "$3" ]]; then ok "$1"; else bad "$1 (expected '$3', got '$2')"; fi; }
 
-docker rm -f "$NAME" >/dev/null 2>&1
+docker rm -f "$NAME" "$VT" >/dev/null 2>&1
+docker network rm "$NET" >/dev/null 2>&1
 rm -rf "$WORK"
 mkdir -p "$WORK"/{config/plugins,cache,media/training,media/other}
 
@@ -84,7 +89,10 @@ KEYFILE="$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/signing.key"
 mkdir -p "${KEYFILE%/*}"; head -c 32 /dev/urandom > "$KEYFILE"; chmod 644 "$KEYFILE"
 SEEDSUM=$(sha256sum < "$KEYFILE" | cut -c1-64)
 
-docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8096" \
+docker network create "$NET" >/dev/null
+cp "$(dirname "$0")/fake_virustotal.py" "$WORK/fake_virustotal.py"
+docker run -d --name "$VT" --network "$NET" -v "$WORK/fake_virustotal.py:/fake_virustotal.py:ro" "$VT_IMAGE" python /fake_virustotal.py 8000 >/dev/null
+docker run -d --name "$NAME" --network "$NET" -e AM_VT_BASE="http://$VT:8000" -p "127.0.0.1:$PORT:8096" \
   -v "$WORK/config:/config" -v "$WORK/cache:/cache" -v "$WORK/media:/media" \
   -v "$WORK/media/training/Course D:/media/training/Course D:ro" "$IMAGE" >/dev/null   # Course D: a folder the server cannot write
 for _ in $(seq 1 90); do [[ $(curl -s "$BASE/health") == Healthy ]] && break; sleep 2; done
@@ -155,7 +163,7 @@ check "zip under a linked folder: no link"    "$(as "$ADMIN" -o /dev/null -w '%{
 check "library not enabled: ignored"        "$(info "$ADMIN" "$SERIESB" | jq -r '.Available')" false
 check "style defaults to two colors"     "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle + " " + .AccentColor')" "color #00A4DC"
 check "display settings defaults"        "$(as "$ADMIN" "$BASE/AdditionalMaterial/web/settings" | jq -c '[.ButtonStyle,.ShowOnParents,.ShowOnCards,.ShowInLists]')" '["color","all",true,true]'
-cfg() { curl "${A[@]}" "$BASE/Plugins/$GUID/Configuration" | jq "$1" | curl "${A[@]}" -X POST "$BASE/Plugins/$GUID/Configuration" -d @- >/dev/null; }
+cfg() { curl "${A[@]}" "$BASE/Plugins/$GUID/Configuration" | jq "$@" | curl "${A[@]}" -X POST "$BASE/Plugins/$GUID/Configuration" -d @- >/dev/null; }
 cfg '.ButtonStyle="mono"';  check "one-color style saved" "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle')" mono
 cfg '.ButtonStyle="color" | .AccentColor="#DB781B"'
 check "two-color style and accent saved"  "$(info "$ADMIN" "$SERIES" | jq -r '.ButtonStyle + " " + .AccentColor')" "color #DB781B"
@@ -347,6 +355,94 @@ got=false; for _ in $(seq 45); do [[ $(info "$ADMIN" "$EE" | jq -r .Available) =
 check "new course: material offered and built within a minute, no re-read" "$got" true
 check "new course: planned on its own, not by a full re-plan" "$(docker logs "$NAME" 2>&1 | grep -c "Additional Material: planned [0-9]* archives in")" "$full_plans"
 docker logs "$NAME" 2>&1 | grep -q "planned /media/training/Course E again" && ok "new course: the watcher planned it" || bad "new course: the watcher planned it"
+
+# ---- rules from the settings ------------------------------------------------------------------
+rules() { as "$1" "$BASE/AdditionalMaterial/Rules"; }
+rcheck() { jq -n --arg t "$1" --arg o "${2:-}" '{Text:$t, OriginalId:$o, OtherIds:[]}' | as "$ADMIN" -X POST -H "Content-Type: application/json" "$BASE/AdditionalMaterial/Rules/Check" -d @-; }
+# Re-read, plan and (background building is on) build; waits for a build run that finished after the request.
+replan() { local before st; before=$(bstat | jq -r .FinishedUtc); as "$ADMIN" -o /dev/null -X POST "$BASE/AdditionalMaterial/Index/Refresh"; for _ in $(seq 90); do sleep 1; st=$(bstat); [[ $(jq -r .Running <<<"$st") == false && $(jq -r .FinishedUtc <<<"$st") != "$before" ]] && break; done; }
+reason_of() { cont "$ADMIN" "$SEASONC" | jq -r --arg p "$1" '.Entries[] | select(.Path==$p) | (if .LeftOut then .Reason else "kept" end)'; }
+check "rules: the built-in ones listed, all on" "$(rules "$ADMIN" | jq -c '[length, all(.Enabled), any(.Custom)]')" '[7,true,false]'
+check "rules: readers refused" "$(as "$READER" -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Rules")" 403
+check "rules: check refused to readers" "$(as "$READER" -o /dev/null -w '%{http_code}' -X POST -H "Content-Type: application/json" "$BASE/AdditionalMaterial/Rules/Check" -d '{"Text":""}')" 403
+MDRULE=$'id = "markdown-slides"
+description = "Markdown slide sources"
+action = "skip"
+reason = "slide source"
+
+[match]
+names = ["*-slides.md"]
+
+[[test]]
+name = "section-slides.md"
+expect = "match"
+
+[[test]]
+name = "notes.md"
+expect = "no-match"
+'
+check "rule check: a valid rule, its tests run" "$(rcheck "$MDRULE" | jq -c '[.Ok, .Id, .Tests]')" '[true,"markdown-slides",2]'
+check "rule check: the file must be named after a valid id" "$(rcheck "${MDRULE/markdown-slides/Markdown Slides}" | jq -c '[.Ok, (.Errors[0] | test("lowercase"))]')" '[false,true]'
+check "rule check: a failing test case refuses it" "$(rcheck "${MDRULE/notes.md/notes-slides.md}" | jq -c '[.Ok, (.Errors[0] | test("expected no-match"))]')" '[false,true]'
+check "rule check: unknown keys refused" "$(rcheck "${MDRULE/action/acton}" | jq -r .Ok)" false
+check "before: the advert is left out by link-only-text" "$(reason_of "Bonus Resources.txt")" "link-only text file (advert) [rule link-only-text]"
+check "before: the slides are kept" "$(reason_of "section-slides.md")" kept
+cfg --arg r "$MDRULE" '.DisabledRules=["link-only-text"] | .CustomRules=[{Id:"markdown-slides", Text:$r}]'
+replan
+check "a turned-off rule no longer applies (the next rule catches the advert)" "$(reason_of "Bonus Resources.txt")" "release-group advert [rule release-group-advert-text]"
+check "an added rule applies" "$(reason_of "section-slides.md")" "slide source [rule markdown-slides]"
+check "rules: the added one listed as yours, the turned-off one off" "$(rules "$ADMIN" | jq -c '[length, (.[] | select(.Id=="markdown-slides") | .Custom), (.[] | select(.Id=="link-only-text") | .Enabled)]')" '[8,true,false]'
+check "downloads follow the rules (only notes.txt is left: handed out as that file)" "$(info "$ADMIN" "$SEASONC" | jq -r .FileName)" notes.txt
+as "$ADMIN" -o "$WORK/rules.zip" "$BASE/AdditionalMaterial/Rules/Export"
+check "export: the rules that are on, as rule files" "$(7z l -ba -slt "$WORK/rules.zip" | sed -n 's/^Path = //p' | sort | tr '\n' ' ')" "jellyfin-chapter-sidecars.toml lesson-attachment-folders.toml markdown-slides.toml release-group-advert-text.toml release-group-adverts.toml shortcuts-and-system-files.toml udemy-redirect-placeholders.toml "
+check "export: readers refused" "$(as "$READER" -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Rules/Export")" 403
+EDITED=$(rules "$ADMIN" | jq -r '.[] | select(.Id=="release-group-adverts") | .Text' | sed 's/"Bonus Resources.txt",/"Bonus Resources.txt", "Bonus*.txt",/')
+cfg --arg r "$EDITED" '.DisabledRules=[] | .CustomRules=[{Id:"release-group-adverts", Text:$r}, {Id:"broken-rule", Text:"id = \"broken-rule\"\n"}]'
+replan
+check "an edited built-in rule replaces the original" "$(rules "$ADMIN" | jq -c '.[] | select(.Id=="release-group-adverts") | [.Custom, .BuiltIn, (.BuiltInText != .Text)]')" '[true,true,true]'
+check "a broken rule from the settings is reported, not used" "$(rules "$ADMIN" | jq -c '.[] | select(.Id=="broken-rule") | [(.Error | test("required")), .Enabled]')" '[true,true]'
+check "a broken rule does not stop planning" "$(reason_of "Bonus Resources.txt")" "link-only text file (advert) [rule link-only-text]"
+docker logs "$NAME" 2>&1 | grep -q "rule broken-rule from the settings cannot be used" && ok "a broken rule is logged" || bad "a broken rule is logged"
+cfg '.DisabledRules=[] | .CustomRules=[]'
+replan
+check "rules back to the built-in ones" "$(7z l -ba -slt "$TC/Season 1/additional-material.zip" | sed -n 's/^Path = //p' | sort | tr '\n' '|')" "notes.txt|section-slides.md|"
+
+# ---- VirusTotal --------------------------------------------------------------------------------
+vtstats() { docker exec "$VT" wget -qO- http://127.0.0.1:8000/stats; }
+vttest() { jq -n --arg k "$1" '{Key:$k}' | as "$2" "${@:3}" -X POST -H "Content-Type: application/json" "$BASE/AdditionalMaterial/VirusTotal/Test" -d @-; }
+check "VirusTotal key test: a good key" "$(vttest test-key "$ADMIN" | jq -r .Ok)" true
+check "VirusTotal key test: a wrong key, with VirusTotal's reason" "$(vttest wrong-key "$ADMIN" | jq -c '[.Ok, (.Message | test("401"))]')" '[false,true]'
+check "VirusTotal key test: readers refused" "$(vttest test-key "$READER" -o /dev/null -w '%{http_code}')" 403
+TF="$WORK/media/training/Course F"; mkdir -p "$TF/Season 1"
+for l in "S01E01 - Clean" "S01E02 - Bad" "S01E03 - Unknown"; do
+  cp "$T/Season 1/S01E01 - Lesson One.mp4" "$TF/Season 1/$l.mp4"; echo "notes for $l" > "$TF/Season 1/$l.txt"
+done
+printf 'clean tool' > "$TF/Season 1/S01E01 - Clean.exe"; printf 'bad tool' > "$TF/Season 1/S01E02 - Bad.exe"; printf 'never seen' > "$TF/Season 1/S01E03 - Unknown.exe"
+note() { 7z e -so "$TF/Season 1/$1.material.zip" "$1.exe.REMOVED.txt" 2>/dev/null | sed -n 's/^  Scan: *//p'; }
+cfg '.VirusTotalApiKey="test-key" | .VirusTotalRequestsPerMinute=600 | .AllowCleanExecutables=false'
+replan
+got=""; for _ in $(seq 60); do got=$(note "S01E01 - Clean"); [[ $got == VirusTotal:* ]] && break; sleep 2; done
+check "VirusTotal: a known file's answer, in its note" "$got" "VirusTotal: known, flagged by 0 of 70 engines"
+for _ in $(seq 20); do [[ $(note "S01E02 - Bad") == VirusTotal:* && $(note "S01E03 - Unknown") == VirusTotal:* ]] && break; sleep 2; done
+check "VirusTotal: a flagged file" "$(note "S01E02 - Bad")" "VirusTotal: FLAGGED by 12 engine(s) as malicious and 1 as suspicious, out of 70"
+check "VirusTotal: a file it does not know" "$(note "S01E03 - Unknown")" "VirusTotal: not known to VirusTotal"
+# Course C's macro document is blocked too, so it is looked up as well.
+check "VirusTotal: each blocked file looked up once, by its SHA-256" "$(vtstats | jq -c '.lookups | sort')" "$({ for c in 'clean tool' 'bad tool' 'never seen'; do printf %s "$c" | sha256sum | cut -c1-64; done; sha256sum < "$TC/Season 1/S01E02 - Two Files.docm" | cut -c1-64; } | jq -R . | jq -sc 'sort')"
+check "VirusTotal: nothing uploaded, nothing else asked" "$(vtstats | jq -c .other)" '[]'
+replan
+check "VirusTotal: answers remembered (no second lookup)" "$(vtstats | jq '.lookups | length')" 4
+curl "${A[@]}" -X POST "$BASE/Library/Media/Updated" -d '{"Updates":[{"Path":"/media/training/Course F","UpdateType":"Created"}]}' >/dev/null
+EF2=""; for _ in $(seq 60); do EF2=$(item Episode "/media/training/Course F/Season 1/S01E02 - Bad.mp4"); [[ -n $EF2 ]] && break; sleep 2; done
+check "VirusTotal: the contents view marks a flagged file" "$(cont "$ADMIN" "$EF2" | jq -c '.Entries[] | select(.Path|endswith(".REMOVED.txt")) | [.Flagged, (.Scan|test("FLAGGED by 12")), .ScanLink]')" "[true,true,\"https://www.virustotal.com/gui/file/$(printf 'bad tool' | sha256sum | cut -c1-64)\"]"
+cfg '.AllowCleanExecutables=true'
+replan
+check "allow clean: a file no engine flags is included as is" "$(7z l -ba -slt "$TF/Season 1/S01E01 - Clean.material.zip" | sed -n 's/^Path = //p' | sort | tr '\n' '|')" "S01E01 - Clean.exe|S01E01 - Clean.txt|"
+check "allow clean: a flagged file is still a note" "$(7z l -ba -slt "$TF/Season 1/S01E02 - Bad.material.zip" | sed -n 's/^Path = //p' | sort | tr '\n' '|')" "S01E02 - Bad.exe.REMOVED.txt|S01E02 - Bad.txt|"
+check "allow clean: an unknown file is still a note" "$(7z l -ba -slt "$TF/Season 1/S01E03 - Unknown.material.zip" | sed -n 's/^Path = //p' | sort | tr '\n' '|')" "S01E03 - Unknown.exe.REMOVED.txt|S01E03 - Unknown.txt|"
+cfg '.VirusTotalApiKey="" | .AllowCleanExecutables=false | .VirusTotalRequestsPerMinute=4'
+replan
+check "no key: notes say not checked again" "$(note "S01E02 - Bad")" "not checked"
+check "no key: no lookups" "$(vtstats | jq '.lookups | length')" 4
 
 cfg '.BuildArchives=false'
 check "building off: built archives still served as they are" "$(info "$ADMIN" "$EC2" | jq -r .FileName)" "S01E02 - Two Files.material.zip"

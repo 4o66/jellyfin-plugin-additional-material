@@ -44,6 +44,7 @@
         'dialog.file': '1 file',
         'dialog.files': '{count} files',
         'dialog.removed': 'removed, replaced by a note',
+        'dialog.removedFlagged': 'removed: flagged by VirusTotal, replaced by a note',
         'dialog.nestedTooLarge': 'too large to list',
         'dialog.truncated': 'Showing the first {count} files.',
         'dialog.loading': 'Loading…',
@@ -387,8 +388,8 @@
                 name.title = f.entry.Reason || '';
                 name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.leftOut', { reason: f.entry.Reason || '' })));
             } else if (removed) {
-                name.title = f.entry.Reason || t('dialog.removed');
-                name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.removed')));
+                name.title = (f.entry.Reason || t('dialog.removed')) + (f.entry.Scan ? '\n' + f.entry.Scan : '');
+                name.appendChild(el('small', 'am-note', ' \u2014 ' + t(f.entry.Flagged ? 'dialog.removedFlagged' : 'dialog.removed')));
             } else if (f.entry.TooLargeToList) {
                 name.appendChild(el('small', 'am-note', ' \u2014 ' + t('dialog.nestedTooLarge')));
             }

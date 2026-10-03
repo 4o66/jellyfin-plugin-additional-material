@@ -39,6 +39,8 @@ public class AdditionalMaterialController : ControllerBase
     private readonly MaterialIndex _index;
     private readonly ArchiveBuilder _builder;
     private readonly MaterialRefresh _refresh;
+    private readonly RuleStore _rules;
+    private readonly VirusTotal _virusTotal;
     private readonly Microsoft.Extensions.Logging.ILogger<AdditionalMaterialController> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="AdditionalMaterialController"/> class.</summary>
@@ -50,9 +52,13 @@ public class AdditionalMaterialController : ControllerBase
     /// <param name="index">The folder index.</param>
     /// <param name="builder">Builds planned archives.</param>
     /// <param name="refresh">Re-reads folders, plans and builds.</param>
+    /// <param name="rules">The rules in force.</param>
+    /// <param name="virusTotal">VirusTotal lookups.</param>
     /// <param name="logger">Logger.</param>
-    public AdditionalMaterialController(ILibraryManager libraryManager, IUserManager userManager, MaterialLocator locator, LinkSigner signer, ArchiveContents contents, MaterialIndex index, ArchiveBuilder builder, MaterialRefresh refresh, Microsoft.Extensions.Logging.ILogger<AdditionalMaterialController> logger)
+    public AdditionalMaterialController(ILibraryManager libraryManager, IUserManager userManager, MaterialLocator locator, LinkSigner signer, ArchiveContents contents, MaterialIndex index, ArchiveBuilder builder, MaterialRefresh refresh, RuleStore rules, VirusTotal virusTotal, Microsoft.Extensions.Logging.ILogger<AdditionalMaterialController> logger)
     {
+        _rules = rules;
+        _virusTotal = virusTotal;
         _builder = builder;
         _refresh = refresh;
         _logger = logger;
@@ -482,7 +488,7 @@ public class AdditionalMaterialController : ControllerBase
                     return NotFound();
                 }
 
-                var note = System.Text.Encoding.UTF8.GetBytes(ArchiveWriter.RemovalNote(file, archive.Base, why));
+                var note = System.Text.Encoding.UTF8.GetBytes(ArchiveWriter.RemovalNote(file, archive.Base, why, archive.Scans.GetValueOrDefault(file)));
                 return File(note, "application/octet-stream", SafeFileName(outer[(outer.LastIndexOf('/') + 1)..], "note.txt"));
             }
 
@@ -542,6 +548,10 @@ public class AdditionalMaterialController : ControllerBase
             if (archive.Removed.TryGetValue(f, out var why))
             {
                 e.Reason = why;
+                var scan = archive.Scans.GetValueOrDefault(f);
+                e.Scan = scan is null ? null : ScanResult.Describe(scan);
+                e.ScanLink = scan?.Link;
+                e.Flagged = scan?.Status == "flagged";
             }
             else if ((Plugin.Instance?.Configuration.ListNestedZips ?? true) && name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
             {
@@ -596,6 +606,46 @@ public class AdditionalMaterialController : ControllerBase
         {
             return 0;
         }
+    }
+
+    /// <summary>Every rule, built-in and the administrator's own, with its text. Administrators only.</summary>
+    /// <returns>The rules.</returns>
+    [HttpGet("Rules")]
+    [Authorize(Policy = "RequiresElevation")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<List<RuleInfo>> GetRules() => RuleStore.List();
+
+    /// <summary>Checks a rule's text as loading it would, and runs its own tests. Administrators only.</summary>
+    /// <param name="request">The text, and the id it had when editing began.</param>
+    /// <returns>What was found.</returns>
+    [HttpPost("Rules/Check")]
+    [Authorize(Policy = "RequiresElevation")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<RuleCheck> CheckRule([FromBody] RuleCheckRequest request)
+        => RuleStore.Check(request.Text ?? string.Empty, request.OriginalId, request.OtherIds ?? []);
+
+    /// <summary>The rules that are on, as rule files in a zip, for the helper script. Administrators only.</summary>
+    /// <returns>The zip.</returns>
+    [HttpGet("Rules/Export")]
+    [Authorize(Policy = "RequiresElevation")]
+    public ActionResult ExportRules() => File(_rules.Export(), "application/zip", "additional-material-rules.zip");
+
+    /// <summary>Tries a VirusTotal API key (the saved one when none is given). Administrators only.</summary>
+    /// <param name="request">The key.</param>
+    /// <returns>Whether it works.</returns>
+    [HttpPost("VirusTotal/Test")]
+    [Authorize(Policy = "RequiresElevation")]
+    [Produces(MediaTypeNames.Application.Json)]
+    public async System.Threading.Tasks.Task<ActionResult<KeyTest>> TestVirusTotal([FromBody] KeyTestRequest request)
+    {
+        var key = string.IsNullOrWhiteSpace(request.Key) ? Plugin.Instance?.Configuration.VirusTotalApiKey : request.Key;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return new KeyTest { Ok = false, Message = "no key" };
+        }
+
+        var (ok, message) = await _virusTotal.TestAsync(key.Trim(), HttpContext.RequestAborted).ConfigureAwait(false);
+        return new KeyTest { Ok = ok, Message = message };
     }
 
     /// <summary>The web-client script that adds the button. Public, like the web client itself.</summary>
@@ -881,4 +931,34 @@ public sealed class DisplaySettings
 
     /// <summary>Gets or sets a value indicating whether list rows show the icon.</summary>
     public bool ShowInLists { get; set; } = true;
+}
+
+/// <summary>A rule to check.</summary>
+public sealed class RuleCheckRequest
+{
+    /// <summary>Gets or sets the rule file's text.</summary>
+    public string? Text { get; set; }
+
+    /// <summary>Gets or sets the id the rule had when editing began (empty for a new rule).</summary>
+    public string? OriginalId { get; set; }
+
+    /// <summary>Gets or sets the ids of the administrator's other rules.</summary>
+    public List<string>? OtherIds { get; set; }
+}
+
+/// <summary>A VirusTotal key to try.</summary>
+public sealed class KeyTestRequest
+{
+    /// <summary>Gets or sets the key; empty tries the saved one.</summary>
+    public string? Key { get; set; }
+}
+
+/// <summary>Whether a VirusTotal key works.</summary>
+public sealed class KeyTest
+{
+    /// <summary>Gets or sets a value indicating whether VirusTotal accepted it.</summary>
+    public bool Ok { get; set; }
+
+    /// <summary>Gets or sets what VirusTotal said.</summary>
+    public string Message { get; set; } = string.Empty;
 }

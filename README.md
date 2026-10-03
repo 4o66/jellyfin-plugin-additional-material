@@ -37,6 +37,33 @@ it is large (100 MB by default) and compresses well.
 The plugin never touches archives it did not build: **a course that already has archives**
 (made by hand or by the script) **is left exactly as it is.**
 
+**Rules** (Settings → Rules) decide what counts as an advert or clutter, and which folders hold a
+lesson's attachments. They are the helper script's rule files: turn one off, edit it, or add your
+own, in the same TOML format ([CONTRIBUTING.md](CONTRIBUTING.md)). **Check** validates a rule and
+runs its own test cases; a rule that fails cannot be used. An edited built-in rule replaces the
+original until you reset it. **Download the rules** gives the rules that are on as a zip, for the
+script's `--no-default-rules --rules DIR`.
+
+### VirusTotal (optional)
+
+With a VirusTotal API key (Settings → VirusTotal), every file replaced by a note is looked up by
+its SHA-256, and the note (and the contents view) says what VirusTotal's engines make of it.
+**Only the fingerprint is sent; files are never uploaded.** Lookups run in the background at
+4 a minute and each answer is remembered (30 days; a day when VirusTotal did not know the file).
+When one arrives, that course's archives are planned and built again. Optionally, programs that
+VirusTotal knows and no engine flags are included instead of replaced (off by default).
+
+To get a key (free):
+
+1. Create a VirusTotal account at <https://www.virustotal.com/gui/join-us> and confirm the email
+   it sends.
+2. Signed in, open your profile menu (top right) and choose **API key**, or go straight to
+   <https://www.virustotal.com/gui/my-apikey>.
+3. Paste the key into Settings → VirusTotal, press **Test key**, then **Save**.
+
+The free public API allows 4 lookups a minute and 500 a day, and VirusTotal's terms allow it for
+non-commercial use only. When the daily quota runs out, lookups pause for an hour.
+
 ## What users see
 
 - **Lesson (episode or movie) pages:** the Additional Material button opens **Contents**, a file
@@ -139,6 +166,10 @@ sections; **Save** at the bottom saves every section and shows when there are un
     `#00A4DC`.
 - **Contents**
   - **List the files inside zips that are inside the material** (on by default).
+- **Building:** see [Building archives](#building-archives-optional).
+- **Rules:** the rules building uses; turn off, edit, add, check, download.
+- **VirusTotal:** the API key (with how to get one and a **Test key** button), lookups per
+  minute, and whether to include programs VirusTotal knows and no engine flags.
 - **Tools** (act at once, no Save needed)
   - **Re-read folders:** re-reads every enabled library's folders now, with progress and the
     result. This also happens after every library scan.

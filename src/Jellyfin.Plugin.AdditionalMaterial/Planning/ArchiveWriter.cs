@@ -97,7 +97,7 @@ public static class ArchiveWriter
                     {
                         var entry = zip.CreateEntry(name, CompressionLevel.Optimal);
                         using var w = new StreamWriter(entry.Open(), new UTF8Encoding(false));
-                        w.Write(RemovalNote(file, archive.Base, why));
+                        w.Write(RemovalNote(file, archive.Base, why, archive.Scans.GetValueOrDefault(file)));
                     }
                     else
                     {
@@ -142,8 +142,9 @@ public static class ArchiveWriter
     /// <param name="path">The blocked file.</param>
     /// <param name="baseDir">The archive's base folder.</param>
     /// <param name="why">Why it was blocked.</param>
+    /// <param name="scan">What VirusTotal knows about it, or <c>null</c> when it was not looked up.</param>
     /// <returns>The note.</returns>
-    public static string RemovalNote(string path, string baseDir, string why)
+    public static string RemovalNote(string path, string baseDir, string why, ScanResult? scan = null)
     {
         string digest;
         using (var f = File.OpenRead(path))
@@ -172,7 +173,7 @@ public static class ArchiveWriter
             + Row(T("note.file"), rel)
             + Row(T("note.size"), T("note.bytes", ("n", new FileInfo(path).Length.ToString(System.Globalization.CultureInfo.InvariantCulture))))
             + Row("SHA-256", digest)
-            + Row(T("note.scan"), "not checked")
+            + Row(T("note.scan"), ScanResult.Describe(scan))
             + "\n" + T("note.lookup") + "\n"
             + "  https://www.virustotal.com/gui/search/" + digest + "\n\n"
             + T("note.override") + "\n";

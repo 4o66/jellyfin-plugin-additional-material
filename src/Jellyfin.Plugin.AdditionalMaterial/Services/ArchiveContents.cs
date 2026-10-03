@@ -31,6 +31,15 @@ public sealed class ContentsEntry
 
     /// <summary>Gets or sets, for a left-out redirect placeholder, the http(s) address it would send the browser to.</summary>
     public string? Link { get; set; }
+
+    /// <summary>Gets or sets, for a file replaced by a note, what VirusTotal says about it (as the note puts it).</summary>
+    public string? Scan { get; set; }
+
+    /// <summary>Gets or sets, for a file replaced by a note that VirusTotal was asked about, its page there.</summary>
+    public string? ScanLink { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether VirusTotal engines flag a file replaced by a note.</summary>
+    public bool Flagged { get; set; }
 }
 
 /// <summary>An archive's listing.</summary>

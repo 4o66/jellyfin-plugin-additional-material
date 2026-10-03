@@ -25,6 +25,22 @@
             #AdditionalMaterialConfigPage .am-saved { color: #52b54b; }
             #AdditionalMaterialConfigPage .am-accent-row { display: flex; align-items: center; gap: .8em; flex-wrap: wrap; }
             #AdditionalMaterialConfigPage .am-code { font-family: monospace; overflow-wrap: anywhere; padding: .5em .7em; border-radius: .3em; background: rgba(128, 128, 128, .15); }
+            #AdditionalMaterialConfigPage .am-rule { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .2em 1em; align-items: center; padding: .6em .2em; border-bottom: 1px solid rgba(128, 128, 128, .2); }
+            #AdditionalMaterialConfigPage .am-rule .checkboxContainer { margin: 0; }
+            #AdditionalMaterialConfigPage .am-rule-id { font-family: monospace; font-weight: 600; overflow-wrap: anywhere; }
+            #AdditionalMaterialConfigPage .am-rule-desc { opacity: .75; font-size: .9em; }
+            #AdditionalMaterialConfigPage .am-rule-actions { display: flex; gap: .4em; flex-wrap: wrap; justify-content: flex-end; }
+            #AdditionalMaterialConfigPage .am-rule-actions .emby-button { margin: 0; }
+            #AdditionalMaterialConfigPage .am-badge { display: inline-block; margin-left: .5em; padding: .05em .5em; border-radius: 1em; font-size: .75em; font-weight: 600; font-family: inherit; vertical-align: middle; background: rgba(128, 128, 128, .25); }
+            #AdditionalMaterialConfigPage .am-badge.am-edited { background: rgba(0, 164, 220, .25); }
+            #AdditionalMaterialConfigPage .am-badge.am-error { background: rgba(217, 83, 79, .35); }
+            #AdditionalMaterialConfigPage .am-editor textarea { width: 100%; box-sizing: border-box; min-height: 22em; font-family: monospace; font-size: .9em; line-height: 1.45; padding: .7em; border-radius: .3em; border: 1px solid rgba(128, 128, 128, .4); background: rgba(0, 0, 0, .2); color: inherit; tab-size: 2; resize: vertical; }
+            #AdditionalMaterialConfigPage .am-row { display: flex; gap: 1em; align-items: center; flex-wrap: wrap; margin-top: .8em; }
+            #AdditionalMaterialConfigPage .am-row .emby-button { margin: 0; }
+            #AdditionalMaterialConfigPage .am-check-ok { color: #52b54b; }
+            #AdditionalMaterialConfigPage .am-check-bad { color: #d9534f; white-space: pre-wrap; font-family: monospace; font-size: .9em; }
+            #AdditionalMaterialConfigPage .am-steps li { margin-bottom: .45em; }
+            #AdditionalMaterialConfigPage .am-steps a, #AdditionalMaterialConfigPage .fieldDescription a { color: #00a4dc; }
             @media (max-width: 50em) {
                 #AdditionalMaterialConfigPage .am-shell { grid-template-columns: minmax(0, 1fr); }
                 #AdditionalMaterialConfigPage .am-nav { position: static; flex-direction: row; overflow-x: auto; margin-bottom: 1em; }
@@ -45,6 +61,8 @@
                         <button type="button" role="tab" data-section="appearance" data-i18n="config.nav.appearance">Appearance</button>
                         <button type="button" role="tab" data-section="contents" data-i18n="config.nav.contents">Contents</button>
                         <button type="button" role="tab" data-section="building" data-i18n="config.nav.building">Building</button>
+                        <button type="button" role="tab" data-section="rules" data-i18n="config.nav.rules">Rules</button>
+                        <button type="button" role="tab" data-section="virustotal" data-i18n="config.nav.virustotal">VirusTotal</button>
                         <button type="button" role="tab" data-section="tools" data-i18n="config.nav.tools">Tools</button>
                         <button type="button" role="tab" data-section="about" data-i18n="config.nav.about">About</button>
                     </nav>
@@ -217,6 +235,72 @@
                             </div>
                         </section>
 
+                        <!-- Rules -->
+                        <section class="am-section" data-section="rules" role="tabpanel" hidden>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.rules">Rules</h3>
+                                <div class="fieldDescription" data-i18n="config.rulesHelp">When the plugin builds archives, rules decide which files are left out (adverts, shortcuts, clutter) and which folders hold a lesson's attachments. They are the helper script's rule files: turn one off, edit it, or add your own. An edited built-in rule replaces the original until you reset it.</div>
+                                <div class="fieldDescription" style="margin-top:.5em;"><a href="https://github.com/4o66/jellyfin-plugin-additional-material/blob/main/CONTRIBUTING.md#adding-a-rule-for-the-helper-script" target="_blank" rel="noopener" data-i18n="config.rulesFormat">The rule file format ↗</a></div>
+                                <div id="amRules" style="margin-top:1em;"></div>
+                                <div class="am-row">
+                                    <button is="emby-button" type="button" id="amRuleAdd" class="raised emby-button"><span data-i18n="config.ruleAdd">Add a rule</span></button>
+                                    <button is="emby-button" type="button" id="amRuleExport" class="raised emby-button"><span data-i18n="config.ruleExport">Download the rules (.zip)</span></button>
+                                </div>
+                                <div class="fieldDescription" style="margin-top:.5em;" data-i18n="config.ruleExportHelp">The saved rules that are on, for the helper script: unzip them into a folder and run it with --no-default-rules --rules &lt;folder&gt;.</div>
+                            </div>
+                            <div class="verticalSection am-editor" id="amRuleEditor" hidden>
+                                <h3 class="sectionTitle" id="amRuleEditorTitle"></h3>
+                                <textarea id="amRuleText" spellcheck="false" autocapitalize="off" autocomplete="off" aria-labelledby="amRuleEditorTitle"></textarea>
+                                <div class="am-row">
+                                    <button is="emby-button" type="button" id="amRuleCheck" class="raised emby-button"><span data-i18n="config.ruleCheck">Check</span></button>
+                                    <button is="emby-button" type="button" id="amRuleKeep" class="raised button-submit emby-button" style="width:auto;"><span data-i18n="config.ruleKeep">Use this rule</span></button>
+                                    <button is="emby-button" type="button" id="amRuleCancel" class="raised emby-button"><span data-i18n="config.ruleCancel">Cancel</span></button>
+                                </div>
+                                <div id="amRuleResult" style="margin-top:.8em;" aria-live="polite"></div>
+                                <div class="fieldDescription" style="margin-top:.5em;" data-i18n="config.ruleEditorHelp">The file must be named after its id, so the id is what you see in the list. Its [[test]] cases run when you check it; a rule whose tests fail cannot be used. Changes take effect when you save.</div>
+                            </div>
+                        </section>
+
+                        <!-- VirusTotal -->
+                        <section class="am-section" data-section="virustotal" role="tabpanel" hidden>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.vt">VirusTotal</h3>
+                                <div class="fieldDescription" data-i18n="config.vtHelp">Programs, scripts and documents with macros are replaced by a note in built archives. With a VirusTotal API key, each one is looked up by its SHA-256 fingerprint, and the note says what VirusTotal's antivirus engines make of it. Only the fingerprint is sent: files are never uploaded.</div>
+                            </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.vtGetKey">Getting a key (free)</h3>
+                                <ol class="fieldDescription am-steps">
+                                    <li><span data-i18n="config.vtStep1">Create a free VirusTotal account, and confirm the email it sends:</span> <a href="https://www.virustotal.com/gui/join-us" target="_blank" rel="noopener">virustotal.com/gui/join-us ↗</a></li>
+                                    <li><span data-i18n="config.vtStep2">Signed in, open your profile menu (top right) and choose API key, or go straight to:</span> <a href="https://www.virustotal.com/gui/my-apikey" target="_blank" rel="noopener">virustotal.com/gui/my-apikey ↗</a></li>
+                                    <li data-i18n="config.vtStep3">Copy the key, paste it below, press Test key, then Save.</li>
+                                </ol>
+                                <div class="fieldDescription" data-i18n="config.vtLimits">The free (public) API allows 4 lookups a minute and 500 a day, and VirusTotal's terms allow it for non-commercial use only. Each file is looked up once and the answer remembered (for 30 days; a day when VirusTotal did not know the file), so a library uses little of that.</div>
+                            </div>
+                            <div class="verticalSection">
+                                <div class="inputContainer">
+                                    <input id="amVtKey" type="password" is="emby-input" autocomplete="off" spellcheck="false" label="API key" data-i18n-label="config.vtKey" />
+                                    <div class="fieldDescription" data-i18n="config.vtKeyHelp">Leave empty to turn lookups off. Stored in the plugin's settings on the server, which only administrators can read.</div>
+                                </div>
+                                <div class="am-row" style="margin-top:0;">
+                                    <button is="emby-button" type="button" id="amVtShow" class="raised emby-button"><span data-i18n="config.vtShow">Show</span></button>
+                                    <button is="emby-button" type="button" id="amVtTest" class="raised emby-button"><span data-i18n="config.vtTest">Test key</span></button>
+                                    <span id="amVtStatus" class="fieldDescription" aria-live="polite"></span>
+                                </div>
+                                <div class="inputContainer" style="margin-top:1.5em;">
+                                    <input id="amVtRate" type="number" is="emby-input" min="1" max="1000" label="Lookups per minute" data-i18n-label="config.vtRate" />
+                                    <div class="fieldDescription" data-i18n="config.vtRateHelp">4 is the free API's limit. Raise it only with a premium key.</div>
+                                </div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amVtAllowClean" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.vtAllowClean">Include programs VirusTotal knows and no engine flags</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.vtAllowCleanHelp">Instead of replacing them by a note. Off by default: no engine flagging a file is not proof that it is safe. A file VirusTotal has never seen is always replaced by a note.</div>
+                                </div>
+                                <div class="fieldDescription" data-i18n="config.vtWhen">Lookups run in the background after a re-read; when an answer arrives, that course's archives are planned and (with background building) built again.</div>
+                            </div>
+                        </section>
+
                         <!-- Tools: these act at once and need no Save -->
                         <section class="am-section" data-section="tools" role="tabpanel" hidden>
                             <div class="verticalSection">
@@ -292,7 +376,29 @@
                     'config.building.running': 'Building\u2026 {progress}%',
                     'config.building.off': 'Building is off (Building section).',
                     'config.building.result': '{planned} archives planned, {current} built and up to date. {alone} courses have their own archives and are left as they are.',
-                    'config.building.failed': '{failed} could not be built; see the server log.'
+                    'config.building.failed': '{failed} could not be built; see the server log.',
+                    'config.rule.builtIn': 'built-in',
+                    'config.rule.edited': 'edited',
+                    'config.rule.yours': 'yours',
+                    'config.rule.broken': 'cannot be used',
+                    'config.rule.edit': 'Edit',
+                    'config.rule.reset': 'Reset',
+                    'config.rule.delete': 'Delete',
+                    'config.rule.on': 'Use {id}',
+                    'config.rule.editing': 'Editing {id}',
+                    'config.rule.new': 'New rule',
+                    'config.rule.ok': 'The rule is valid; {tests} of its tests passed.',
+                    'config.rule.okNoTests': 'The rule is valid. It has no [[test]] cases: adding some is a good idea.',
+                    'config.rule.brokenSaved': 'Your text cannot be used ({error}), so {fallback}.',
+                    'config.rule.fallbackBuiltIn': 'the built-in rule is used',
+                    'config.rule.fallbackNone': 'the rule is not used',
+                    'config.rule.checkFailed': 'Could not reach the server.',
+                    'config.vt.testing': 'Testing\u2026',
+                    'config.vt.ok': 'VirusTotal accepted the key.',
+                    'config.vt.bad': 'VirusTotal refused it: {message}',
+                    'config.vt.none': 'Enter a key first.',
+                    'config.vt.hide': 'Hide',
+                    'config.vt.show': 'Show'
                 };
 
                 function fill(key, values) {
@@ -343,8 +449,8 @@
                 }
 
                 function markDirty(e) {
-                    if (e && e.target && e.target.closest && e.target.closest('[data-section="tools"], [data-section="about"]')) {
-                        return;   // tools act at once; nothing to save
+                    if (e && e.target && e.target.closest && e.target.closest('[data-section="tools"], [data-section="about"], #amRuleEditor')) {
+                        return;   // tools act at once, and an edited rule counts once it is used; nothing to save yet
                     }
                     dirty = true;
                     setState('dirty');
@@ -372,6 +478,267 @@
                     page.querySelector('#amAccent').value = DEFAULT_ACCENT.toLowerCase();
                     preview();
                     markDirty();
+                });
+
+                // ---- rules ----
+                // The saved rules come from the server; edits stay here until Save.
+                var rules = { builtIn: {}, custom: {}, meta: {}, disabled: {}, errors: {} };
+                var rulesTouched = false;
+                var editing = null;   // { original: id or null }
+
+                function el(tag, cls, content) {
+                    var e = document.createElement(tag);
+                    if (cls) { e.className = cls; }
+                    if (content != null) { e.textContent = content; }
+                    return e;
+                }
+
+                function button(label, handler) {
+                    var b = el('button', 'raised emby-button');
+                    b.type = 'button';
+                    b.setAttribute('is', 'emby-button');
+                    b.appendChild(el('span', null, label));
+                    b.addEventListener('click', handler);
+                    return b;
+                }
+
+                function loadRules(list) {
+                    rules = { builtIn: {}, custom: {}, meta: {}, disabled: {}, errors: {} };
+                    (list || []).forEach(function (r) {
+                        if (r.BuiltIn) { rules.builtIn[r.Id] = r.Custom ? r.BuiltInText : r.Text; }
+                        if (r.Custom) { rules.custom[r.Id] = r.Text; }
+                        if (!r.Enabled) { rules.disabled[r.Id] = true; }
+                        if (r.Error) { rules.errors[r.Id] = r.Error; }
+                        rules.meta[r.Id] = { description: r.Description, action: r.Action };
+                    });
+                    rulesTouched = false;
+                    renderRules();
+                }
+
+                function ruleIds() {
+                    return Object.keys(rules.builtIn).concat(Object.keys(rules.custom).filter(function (id) { return !(id in rules.builtIn); })).sort();
+                }
+
+                function touchRules() {
+                    rulesTouched = true;
+                    markDirty();
+                    renderRules();
+                }
+
+                function renderRules() {
+                    var box = page.querySelector('#amRules');
+                    box.innerHTML = '';
+                    ruleIds().forEach(function (id) {
+                        var meta = rules.meta[id] || {};
+                        var row = el('div', 'am-rule');
+                        row.dataset.ruleId = id;
+                        var cb = el('div', 'checkboxContainer');
+                        var label = el('label', 'emby-checkbox-label');
+                        var input = el('input');
+                        input.type = 'checkbox';
+                        input.setAttribute('is', 'emby-checkbox');
+                        input.checked = !rules.disabled[id];
+                        input.setAttribute('aria-label', fill('config.rule.on', { id: id }));
+                        input.addEventListener('change', function () {
+                            if (input.checked) { delete rules.disabled[id]; } else { rules.disabled[id] = true; }
+                            rulesTouched = true;
+                        });
+                        label.appendChild(input);
+                        label.appendChild(el('span', null, ''));
+                        cb.appendChild(label);
+                        row.appendChild(cb);
+
+                        var info = el('div');
+                        var title = el('div', 'am-rule-id', id);
+                        var custom = id in rules.custom;
+                        var builtIn = id in rules.builtIn;
+                        if (rules.errors[id]) {
+                            title.appendChild(el('span', 'am-badge am-error', fill('config.rule.broken')));
+                        } else if (custom && builtIn) {
+                            title.appendChild(el('span', 'am-badge am-edited', fill('config.rule.edited')));
+                        } else if (custom) {
+                            title.appendChild(el('span', 'am-badge am-edited', fill('config.rule.yours')));
+                        } else {
+                            title.appendChild(el('span', 'am-badge', fill('config.rule.builtIn')));
+                        }
+                        info.appendChild(title);
+                        info.appendChild(el('div', 'am-rule-desc', (meta.description || '') + (meta.action ? ' (' + meta.action + ')' : '')));
+                        if (rules.errors[id]) {
+                            info.appendChild(el('div', 'am-rule-desc am-check-bad', fill('config.rule.brokenSaved', {
+                                error: rules.errors[id],
+                                fallback: fill(builtIn ? 'config.rule.fallbackBuiltIn' : 'config.rule.fallbackNone')
+                            })));
+                        }
+                        row.appendChild(info);
+
+                        var actions = el('div', 'am-rule-actions');
+                        actions.appendChild(button(fill('config.rule.edit'), function () { openEditor(id); }));
+                        if (custom && builtIn) {
+                            actions.appendChild(button(fill('config.rule.reset'), function () {
+                                delete rules.custom[id];
+                                delete rules.errors[id];
+                                touchRules();
+                            }));
+                        } else if (custom) {
+                            actions.appendChild(button(fill('config.rule.delete'), function () {
+                                delete rules.custom[id];
+                                delete rules.disabled[id];
+                                delete rules.errors[id];
+                                delete rules.meta[id];
+                                touchRules();
+                            }));
+                        }
+                        row.appendChild(actions);
+                        box.appendChild(row);
+                    });
+                }
+
+                var NEW_RULE = [
+                    'id = "my-rule"',
+                    'description = "What the rule is for"',
+                    'action = "skip"',
+                    'reason = "the reason shown for files it leaves out"',
+                    '',
+                    '[match]',
+                    '# Every condition here must hold. Also: name_regex, extensions, max_size,',
+                    '# content_regex, max_visible_text, lines_regex (see the rule file format).',
+                    'names = ["*.example"]',
+                    '',
+                    '[[test]]',
+                    'name = "readme.example"',
+                    'expect = "match"',
+                    '',
+                    '[[test]]',
+                    'name = "Lab Guide.pdf"',
+                    'expect = "no-match"',
+                    ''
+                ].join('\n');
+
+                function openEditor(id) {
+                    editing = { original: id };
+                    var editor = page.querySelector('#amRuleEditor');
+                    page.querySelector('#amRuleEditorTitle').textContent = id ? fill('config.rule.editing', { id: id }) : fill('config.rule.new');
+                    page.querySelector('#amRuleText').value = id ? (id in rules.custom ? rules.custom[id] : rules.builtIn[id]) : NEW_RULE;
+                    page.querySelector('#amRuleResult').innerHTML = '';
+                    editor.hidden = false;
+                    editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    page.querySelector('#amRuleText').focus();
+                }
+
+                function closeEditor() {
+                    editing = null;
+                    page.querySelector('#amRuleEditor').hidden = true;
+                }
+
+                function checkRule() {
+                    var others = Object.keys(rules.custom).filter(function (id) { return id !== editing.original; });
+                    return ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('AdditionalMaterial/Rules/Check'),
+                        data: JSON.stringify({ Text: page.querySelector('#amRuleText').value, OriginalId: editing.original || '', OtherIds: others }),
+                        contentType: 'application/json',
+                        dataType: 'json'
+                    }).then(function (result) {
+                        var out = page.querySelector('#amRuleResult');
+                        out.innerHTML = '';
+                        if (result.Ok) {
+                            out.appendChild(el('div', 'am-check-ok', fill(result.Tests ? 'config.rule.ok' : 'config.rule.okNoTests', { tests: result.Tests })));
+                        } else {
+                            out.appendChild(el('div', 'am-check-bad', (result.Errors || []).join('\n')));
+                        }
+                        return result;
+                    }, function () {
+                        page.querySelector('#amRuleResult').textContent = fill('config.rule.checkFailed');
+                        return null;
+                    });
+                }
+
+                page.querySelector('#amRuleCheck').addEventListener('click', checkRule);
+                page.querySelector('#amRuleCancel').addEventListener('click', closeEditor);
+                page.querySelector('#amRuleAdd').addEventListener('click', function () { openEditor(null); });
+                page.querySelector('#amRuleKeep').addEventListener('click', function () {
+                    checkRule().then(function (result) {
+                        if (!result || !result.Ok || !editing) {
+                            return;
+                        }
+                        var text = page.querySelector('#amRuleText').value;
+                        var id = result.Id;
+                        var original = editing.original;
+                        if (original && original !== id) {
+                            // Renamed: an edited built-in rule goes back to the original, your own rule moves.
+                            delete rules.custom[original];
+                            delete rules.errors[original];
+                            if (!(original in rules.builtIn)) {
+                                if (rules.disabled[original]) { rules.disabled[id] = true; }
+                                delete rules.disabled[original];
+                                delete rules.meta[original];
+                            }
+                        }
+                        if (id in rules.builtIn && text.replace(/\s+$/, '') === (rules.builtIn[id] || '').replace(/\s+$/, '')) {
+                            delete rules.custom[id];   // unchanged: just the built-in rule
+                        } else {
+                            rules.custom[id] = text;
+                        }
+                        delete rules.errors[id];
+                        rules.meta[id] = { description: result.Description, action: result.Action };
+                        closeEditor();
+                        touchRules();
+                    });
+                });
+
+                page.querySelector('#amRuleExport').addEventListener('click', function () {
+                    // Through ApiClient, so the request carries the server's authorization.
+                    var x = new XMLHttpRequest();
+                    x.open('GET', ApiClient.getUrl('AdditionalMaterial/Rules/Export'));
+                    x.responseType = 'blob';
+                    x.setRequestHeader('Authorization', 'MediaBrowser Token="' + ApiClient.accessToken() + '"');
+                    x.onload = function () {
+                        if (x.status !== 200) { return; }
+                        var a = document.createElement('a');
+                        a.href = URL.createObjectURL(x.response);
+                        a.download = 'additional-material-rules.zip';
+                        document.body.appendChild(a);
+                        a.click();
+                        window.setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+                    };
+                    x.send();
+                });
+
+                function fetchRules() {
+                    return ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('AdditionalMaterial/Rules'), dataType: 'json' }).then(loadRules);
+                }
+
+                // ---- VirusTotal ----
+                page.querySelector('#amVtShow').addEventListener('click', function () {
+                    var input = page.querySelector('#amVtKey');
+                    var show = input.type === 'password';
+                    input.type = show ? 'text' : 'password';
+                    page.querySelector('#amVtShow span').textContent = fill(show ? 'config.vt.hide' : 'config.vt.show');
+                });
+
+                page.querySelector('#amVtTest').addEventListener('click', function () {
+                    var key = page.querySelector('#amVtKey').value.trim();
+                    var out = page.querySelector('#amVtStatus');
+                    if (!key) {
+                        out.className = 'fieldDescription am-check-bad';
+                        out.textContent = fill('config.vt.none');
+                        return;
+                    }
+                    out.className = 'fieldDescription';
+                    out.textContent = fill('config.vt.testing');
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('AdditionalMaterial/VirusTotal/Test'),
+                        data: JSON.stringify({ Key: key }),
+                        contentType: 'application/json',
+                        dataType: 'json'
+                    }).then(function (r) {
+                        out.className = 'fieldDescription ' + (r.Ok ? 'am-check-ok' : 'am-check-bad');
+                        out.textContent = r.Ok ? fill('config.vt.ok') : fill('config.vt.bad', { message: r.Message });
+                    }, function () {
+                        out.className = 'fieldDescription am-check-bad';
+                        out.textContent = fill('config.rule.checkFailed');
+                    });
                 });
 
                 // ---- load / save ----
@@ -414,14 +781,24 @@
                     page.querySelector('#amAccent').value = /^#[0-9A-Fa-f]{6}$/.test(config.AccentColor || '') ? config.AccentColor : DEFAULT_ACCENT;
                     preview();
                     page.querySelector('#amLinkMinutes').value = config.LinkLifetimeMinutes || 10;
+                    page.querySelector('#amVtKey').value = config.VirusTotalApiKey || '';
+                    page.querySelector('#amVtRate').value = config.VirusTotalRequestsPerMinute || 4;
+                    page.querySelector('#amVtAllowClean').checked = config.AllowCleanExecutables === true;
                     dirty = false;
                     setState('');
+                }
+
+                // What changes the archives' contents: saving it plans the courses again.
+                function planningSettings(config) {
+                    return JSON.stringify([config.DisabledRules, config.CustomRules, config.VirusTotalApiKey, config.AllowCleanExecutables]);
                 }
 
                 form.addEventListener('submit', function (e) {
                     e.preventDefault();
                     Dashboard.showLoadingMsg();
+                    var replan = false;
                     ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                        var before = planningSettings(config);
                         config.EnabledLibraryIds = Array.prototype.map.call(
                             page.querySelectorAll('#amLibraries input:checked'),
                             function (input) { return input.dataset.libraryId; });
@@ -440,9 +817,23 @@
                         config.ServeSingleFiles = page.querySelector('#amSingle').checked;
                         config.SingleFileZipFromMegabytes = parseInt(page.querySelector('#amSingleMB').value, 10) || 100;
                         config.ShowLeftOutFiles = page.querySelector('input[name=amLeftOut]:checked').value;
+                        if (rulesTouched) {
+                            config.DisabledRules = Object.keys(rules.disabled).filter(function (id) { return rules.disabled[id]; }).sort();
+                            config.CustomRules = Object.keys(rules.custom).sort().map(function (id) { return { Id: id, Text: rules.custom[id] }; });
+                        }
+                        config.VirusTotalApiKey = page.querySelector('#amVtKey').value.trim();
+                        config.VirusTotalRequestsPerMinute = parseInt(page.querySelector('#amVtRate').value, 10) || 4;
+                        config.AllowCleanExecutables = page.querySelector('#amVtAllowClean').checked;
+                        replan = planningSettings(config) !== before;
                         return ApiClient.updatePluginConfiguration(pluginId, config);
                     }).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
+                        if (replan) {
+                            indexCall('POST', 'Refresh');
+                        }
+                        if (rulesTouched || replan) {
+                            fetchRules();
+                        }
                         dirty = false;
                         setState('saved');
                         window.setTimeout(function () { if (!dirty) { setState(''); } }, 3000);
@@ -577,7 +968,7 @@
                         Dashboard.hideLoadingMsg();
                     });
                     Dashboard.showLoadingMsg();
-                    Promise.all([translate(), configured]).then(function () { pollIndex(); pollBuild(); showVersion(); });
+                    Promise.all([translate(), configured]).then(function () { pollIndex(); pollBuild(); showVersion(); fetchRules(); });
                 });
             })();
         </script>

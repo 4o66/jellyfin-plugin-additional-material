@@ -86,4 +86,35 @@ public class PluginConfiguration : BasePluginConfiguration
     /// links outside the library), with the reason: <c>everyone</c>, <c>admins</c> or <c>nobody</c>.
     /// </summary>
     public string ShowLeftOutFiles { get; set; } = "everyone";
+
+    /// <summary>Gets or sets the ids of rules that are turned off (built-in or the administrator's own).</summary>
+    public string[] DisabledRules { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Gets or sets the administrator's rules, in the rule file format: new ones, and edited copies
+    /// of built-in ones, which replace the built-in rule with the same id.
+    /// </summary>
+    public CustomRule[] CustomRules { get; set; } = Array.Empty<CustomRule>();
+
+    /// <summary>
+    /// Gets or sets the VirusTotal API key. When set, blocked files are looked up by SHA-256
+    /// (only the fingerprint is sent; nothing is uploaded) and the result goes in their note.
+    /// </summary>
+    public string VirusTotalApiKey { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets how many VirusTotal requests are made per minute (the free API allows 4).</summary>
+    public int VirusTotalRequestsPerMinute { get; set; } = 4;
+
+    /// <summary>Gets or sets a value indicating whether executable content VirusTotal knows and no engine flags is included as is, rather than replaced by a note.</summary>
+    public bool AllowCleanExecutables { get; set; }
+}
+
+/// <summary>One of the administrator's rules.</summary>
+public class CustomRule
+{
+    /// <summary>Gets or sets the rule's id, as in its text.</summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the rule file's text (TOML).</summary>
+    public string Text { get; set; } = string.Empty;
 }

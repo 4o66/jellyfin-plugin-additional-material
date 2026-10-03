@@ -192,7 +192,8 @@ public sealed class ArchivePlans
     private readonly ILibraryManager _libraryManager;
     private readonly BuiltRegistry _registry;
     private readonly ILogger<ArchivePlans> _logger;
-    private readonly Lazy<List<Rule>> _rules;
+    private readonly RuleStore _rules;
+    private readonly VirusTotal _virusTotal;
     private readonly object _swap = new();
     private volatile Dictionary<string, PlanEntry> _plans = new(StringComparer.Ordinal);
     private int _planning;
@@ -200,13 +201,16 @@ public sealed class ArchivePlans
     /// <summary>Initializes a new instance of the <see cref="ArchivePlans"/> class.</summary>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="registry">The plugin's built archives.</param>
+    /// <param name="rules">The rules in force.</param>
+    /// <param name="virusTotal">VirusTotal lookups.</param>
     /// <param name="logger">Logger.</param>
-    public ArchivePlans(ILibraryManager libraryManager, BuiltRegistry registry, ILogger<ArchivePlans> logger)
+    public ArchivePlans(ILibraryManager libraryManager, BuiltRegistry registry, RuleStore rules, VirusTotal virusTotal, ILogger<ArchivePlans> logger)
     {
         _libraryManager = libraryManager;
         _registry = registry;
+        _rules = rules;
+        _virusTotal = virusTotal;
         _logger = logger;
-        _rules = new Lazy<List<Rule>>(() => Rule.LoadAll(ArchiveWriter.BuiltInRules()));
     }
 
     /// <summary>Gets every planned archive.</summary>
@@ -348,7 +352,12 @@ public sealed class ArchivePlans
 
     private IEnumerable<PlanEntry> PlanCourse(string course)
     {
-        var planner = new Planner(_rules.Value, new PlanOptions());
+        var options = new PlanOptions
+        {
+            Scan = _virusTotal.Lookup,
+            AllowCleanExecutables = Plugin.Instance?.Configuration.AllowCleanExecutables == true,
+        };
+        var planner = new Planner(_rules.Current(), options);
         List<PlannedArchive> archives;
         try
         {
@@ -389,7 +398,8 @@ public sealed class ArchivePlans
             text.Append(archive.EntryName(f)).Append('|')
                 .Append(info.Exists ? info.Length : -1).Append('|')
                 .Append(info.Exists ? info.LastWriteTimeUtc.Ticks : 0).Append('|')
-                .Append(archive.Removed.GetValueOrDefault(f, string.Empty)).Append('\n');
+                .Append(archive.Removed.GetValueOrDefault(f, string.Empty)).Append('|')
+                .Append(archive.Removed.ContainsKey(f) ? ScanResult.Describe(archive.Scans.GetValueOrDefault(f)) : string.Empty).Append('\n');
         }
 
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..32];

@@ -14,6 +14,7 @@ namespace Jellyfin.Plugin.AdditionalMaterial.Services;
 /// Plans (and, with background building on, builds) a course as soon as Jellyfin adds items to it,
 /// rather than at the next full library scan. Additions are collected until none has come for
 /// <see cref="Quiet"/>, so a course still being copied is planned once, when the copy is done.
+/// A new VirusTotal answer about one of a course's files does the same: its note changes.
 /// </summary>
 public sealed class NewCourseWatcher : IHostedService, IDisposable
 {
@@ -24,6 +25,7 @@ public sealed class NewCourseWatcher : IHostedService, IDisposable
     private readonly MaterialIndex _index;
     private readonly ArchivePlans _plans;
     private readonly ArchiveBuilder _builder;
+    private readonly VirusTotal _virusTotal;
     private readonly ILogger<NewCourseWatcher> _logger;
     private readonly object _lock = new();
     private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
@@ -35,13 +37,15 @@ public sealed class NewCourseWatcher : IHostedService, IDisposable
     /// <param name="index">The folder index.</param>
     /// <param name="plans">The plans.</param>
     /// <param name="builder">The builder.</param>
+    /// <param name="virusTotal">VirusTotal lookups, whose answers change what a course's archives hold.</param>
     /// <param name="logger">Logger.</param>
-    public NewCourseWatcher(ILibraryManager libraryManager, MaterialIndex index, ArchivePlans plans, ArchiveBuilder builder, ILogger<NewCourseWatcher> logger)
+    public NewCourseWatcher(ILibraryManager libraryManager, MaterialIndex index, ArchivePlans plans, ArchiveBuilder builder, VirusTotal virusTotal, ILogger<NewCourseWatcher> logger)
     {
         _libraryManager = libraryManager;
         _index = index;
         _plans = plans;
         _builder = builder;
+        _virusTotal = virusTotal;
         _logger = logger;
     }
 
@@ -50,6 +54,7 @@ public sealed class NewCourseWatcher : IHostedService, IDisposable
     {
         _timer = new Timer(_ => Run(), null, Timeout.Infinite, Timeout.Infinite);
         _libraryManager.ItemAdded += OnItemAdded;
+        _virusTotal.Checked += Add;
         return Task.CompletedTask;
     }
 
@@ -57,6 +62,7 @@ public sealed class NewCourseWatcher : IHostedService, IDisposable
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _libraryManager.ItemAdded -= OnItemAdded;
+        _virusTotal.Checked -= Add;
         _stopping.Cancel();
         _timer?.Change(Timeout.Infinite, Timeout.Infinite);
         return Task.CompletedTask;
@@ -72,7 +78,16 @@ public sealed class NewCourseWatcher : IHostedService, IDisposable
     private void OnItemAdded(object? sender, ItemChangeEventArgs e)
     {
         var path = e.Item?.Path;
-        if (string.IsNullOrEmpty(path) || e.Item!.IsVirtualItem || Plugin.Instance?.Configuration.BuildArchives != true)
+        if (!string.IsNullOrEmpty(path) && !e.Item!.IsVirtualItem)
+        {
+            Add(path);
+        }
+    }
+
+    /// <summary>Plans the course a path lies in again, once nothing more has come for <see cref="Quiet"/>.</summary>
+    private void Add(string path)
+    {
+        if (Plugin.Instance?.Configuration.BuildArchives != true)
         {
             return;
         }

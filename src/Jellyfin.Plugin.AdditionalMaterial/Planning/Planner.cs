@@ -26,6 +26,15 @@ public sealed class PlanOptions
 
     /// <summary>Gets or sets globs of files to leave out (name, or path within the course).</summary>
     public List<string> Excludes { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets how blocked files are looked up on VirusTotal: the file's path in, what is known
+    /// about it (or <c>null</c>, not checked) out. <c>null</c> means no lookups, as without a key.
+    /// </summary>
+    public Func<string, ScanResult?>? Scan { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether executable content VirusTotal knows and no engine flags is included as is.</summary>
+    public bool AllowCleanExecutables { get; set; }
 }
 
 /// <summary>One archive the planner would build.</summary>
@@ -54,6 +63,9 @@ public sealed class PlannedArchive
 
     /// <summary>Gets why each file is in this archive.</summary>
     public Dictionary<string, string> Placement { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Gets what VirusTotal knows about the removed files that were looked up.</summary>
+    public Dictionary<string, ScanResult> Scans { get; } = new(StringComparer.Ordinal);
 
     /// <summary>The entry name a file gets: its path below <see cref="Base"/>, with a note's suffix for removed files.</summary>
     /// <param name="file">One of <see cref="Files"/>.</param>
@@ -93,6 +105,7 @@ public sealed class Planner
     private readonly HashSet<string> _attachmentDirs;
     private readonly HashSet<string> _quietReasons;
     private readonly Dictionary<string, string> _blocked = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ScanResult> _scans = new(StringComparer.Ordinal);
 
     /// <summary>Initializes a new instance of the <see cref="Planner"/> class.</summary>
     /// <param name="rules">The loaded rules.</param>
@@ -177,6 +190,11 @@ public sealed class Planner
             if (_blocked.TryGetValue(path, out var why))
             {
                 g.Removed[path] = why;
+            }
+
+            if (_scans.TryGetValue(path, out var scan))
+            {
+                g.Scans[path] = scan;
             }
         }
 
@@ -481,7 +499,18 @@ public sealed class Planner
     private void Screen(string path)
     {
         var why = ExecutableReason(path);
-        if (why is not null)
+        if (why is null)
+        {
+            return;
+        }
+
+        var scan = _options.Scan?.Invoke(path);
+        if (scan is not null)
+        {
+            _scans[path] = scan;
+        }
+
+        if (!(_options.AllowCleanExecutables && scan?.Status == "clean"))
         {
             _blocked[path] = why;
         }
