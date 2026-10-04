@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.6.0 (unreleased)
+## 1.6.0 (2026-10-04)
 
 - **Rules in the settings** (Settings → Rules): every rule building uses is listed, and can be
   turned off, edited (an edited built-in rule replaces the original until reset) or added, in the
