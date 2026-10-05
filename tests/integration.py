@@ -23,6 +23,13 @@ plugins folder.
   --ffmpeg / --sample-video  how to make the sample video (default: the server's bundled ffmpeg)
   --ft        expect the File Transformation plugin, and check index.html carries the script
   --service-sid  Windows: the account the server runs as (default *S-1-5-20, NetworkService)
+  --fake-vt PORT  run tests/fake_virustotal.py on 127.0.0.1:PORT and check VirusTotal lookups. The
+              server must have been started with AM_VT_BASE=http://127.0.0.1:PORT in its
+              environment (Windows: the service's Environment value in the registry; systemd: a
+              drop-in with Environment=). Without it, the VirusTotal checks are skipped.
+
+Folder watching (1.6.1) needs the training library's real-time monitoring, which the test turns on
+near the end; the server must be able to watch the work folder (a local disk, not a share).
 
 Building archives needs some course folders the server can write and some it cannot, which
 integration.sh gets from a read-only bind mount. Here permissions do it. Windows: the training
@@ -67,6 +74,7 @@ ap.add_argument("--sample-video")
 ap.add_argument("--ft", action="store_true")
 ap.add_argument("--server-sep", help="path separator the server uses (default: this machine's)")
 ap.add_argument("--service-sid", help="Windows: the account the server runs as (default *S-1-5-20, NetworkService)")
+ap.add_argument("--fake-vt", type=int, metavar="PORT", help="run a fake VirusTotal on 127.0.0.1:PORT (the server needs AM_VT_BASE)")
 args = ap.parse_args()
 
 BASE = args.base.rstrip("/")
@@ -898,6 +906,187 @@ if os.path.exists(ZF):
     cfg(BuiltArchiveLocation="beside"); post("/AdditionalMaterial/Index/Refresh", ADMIN); time.sleep(2)
     s = wait_build(lambda s: s.get("UpToDate") == s.get("Planned"))
     check("back beside the videos: every planned archive built", [s.get("Planned") == s.get("UpToDate"), s.get("Failed"), os.path.exists(ZF)], [True, 0, True])
+
+# ---- helpers shared by the rules, VirusTotal and watching checks -------------------------------
+def log_text():
+    """The server's current log, or None without --log-dir. Quotes are dropped: some installs' file
+    logs quote each value (the .deb writes rule "broken-rule" where the console shows rule broken-rule)."""
+    if not args.log_dir:
+        return None
+    logs = sorted(glob.glob(os.path.join(args.log_dir, "*.log")), key=os.path.getmtime)
+    return open(logs[-1], encoding="utf-8", errors="replace").read().replace('"', "") if logs else ""
+
+
+def replan():
+    """Re-read, plan and (background building is on) build; waits for a build run that ends after the request."""
+    before = bstat().get("FinishedUtc")
+    post("/AdditionalMaterial/Index/Refresh", ADMIN)
+    for _ in range(90):
+        time.sleep(1)
+        s_ = bstat()
+        if s_.get("Running") is False and s_.get("FinishedUtc") != before:
+            return
+
+
+def reason_of(name):
+    e = next((e for e in cont(ADMIN, SEASONC).get("Entries", []) if e.get("Path") == name), None)
+    return None if e is None else (e.get("Reason") if e.get("LeftOut") else "kept")
+
+
+def wait_items(*paths_):
+    """Item ids for media paths (each a tuple of parts below the work folder), scanning until Jellyfin has them all."""
+    post("/Library/Refresh", ADMIN)
+    found = {}
+    for _ in range(120):
+        time.sleep(2)
+        items = (js(get("/Items?Recursive=true&IncludeItemTypes=Episode,Season,Series&Fields=Path", ADMIN)) or {}).get("Items", [])
+        by_path = {norm(i.get("Path") or ""): i["Id"] for i in items}
+        found = {p_: by_path.get(norm(spath("media", *p_))) for p_ in paths_}
+        if all(found.values()):
+            break
+    return found
+
+
+# ---- rules from the settings ------------------------------------------------------------------
+def rules_list(token=ADMIN):
+    return js(get("/AdditionalMaterial/Rules", token)) or []
+
+
+def rcheck(text, original=""):
+    return js(post("/AdditionalMaterial/Rules/Check", ADMIN, {"Text": text, "OriginalId": original, "OtherIds": []})) or {}
+
+
+r0 = rules_list()
+check("rules: the built-in ones listed, all on", [len(r0), all(r.get("Enabled") for r in r0), any(r.get("Custom") for r in r0)], [7, True, False])
+check("rules: readers refused", code("GET", "/AdditionalMaterial/Rules", READER), 403)
+check("rules: check refused to readers", http("POST", "/AdditionalMaterial/Rules/Check", READER, {"Text": ""})[0], 403)
+MDRULE = ('id = "markdown-slides"\ndescription = "Markdown slide sources"\naction = "skip"\nreason = "slide source"\n\n'
+          '[match]\nnames = ["*-slides.md"]\n\n[[test]]\nname = "section-slides.md"\nexpect = "match"\n\n'
+          '[[test]]\nname = "notes.md"\nexpect = "no-match"\n')
+r = rcheck(MDRULE)
+check("rule check: a valid rule, its tests run", [r.get("Ok"), r.get("Id"), r.get("Tests")], [True, "markdown-slides", 2])
+r = rcheck(MDRULE.replace("markdown-slides", "Markdown Slides"))
+check("rule check: the file must be named after a valid id", [r.get("Ok"), "lowercase" in " ".join(r.get("Errors") or [])], [False, True])
+r = rcheck(MDRULE.replace("notes.md", "notes-slides.md"))
+check("rule check: a failing test case refuses it", [r.get("Ok"), "expected no-match" in " ".join(r.get("Errors") or [])], [False, True])
+check("rule check: unknown keys refused", rcheck(MDRULE.replace("action", "acton", 1)).get("Ok"), False)
+check("before: the advert is left out by link-only-text", reason_of("Bonus Resources.txt"), "link-only text file (advert) [rule link-only-text]")
+check("before: the slides are kept", reason_of("section-slides.md"), "kept")
+cfg(DisabledRules=["link-only-text"], CustomRules=[{"Id": "markdown-slides", "Text": MDRULE}])
+replan()
+check("a turned-off rule no longer applies (the next rule catches the advert)", reason_of("Bonus Resources.txt"), "release-group advert [rule release-group-advert-text]")
+check("an added rule applies", reason_of("section-slides.md"), "slide source [rule markdown-slides]")
+rl = {r_["Id"]: r_ for r_ in rules_list()}
+check("rules: the added one listed as yours, the turned-off one off",
+      [len(rl), rl.get("markdown-slides", {}).get("Custom"), rl.get("link-only-text", {}).get("Enabled")], [8, True, False])
+check("downloads follow the rules (only notes.txt is left: handed out as that file)", iinfo(ADMIN, SEASONC).get("FileName"), "notes.txt")
+status, _, zr = get("/AdditionalMaterial/Rules/Export", ADMIN)
+try:
+    import io
+    exported = sorted(zipfile.ZipFile(io.BytesIO(zr)).namelist()) if status == 200 else [status]
+except zipfile.BadZipFile as e:
+    exported = [str(e)]
+check("export: the rules that are on, as rule files", exported,
+      ["jellyfin-chapter-sidecars.toml", "lesson-attachment-folders.toml", "markdown-slides.toml", "release-group-advert-text.toml",
+       "release-group-adverts.toml", "shortcuts-and-system-files.toml", "udemy-redirect-placeholders.toml"])
+check("export: readers refused", code("GET", "/AdditionalMaterial/Rules/Export", READER), 403)
+EDITED = rl["release-group-adverts"]["Text"].replace('"Bonus Resources.txt",', '"Bonus Resources.txt", "Bonus*.txt",')
+cfg(DisabledRules=[], CustomRules=[{"Id": "release-group-adverts", "Text": EDITED}, {"Id": "broken-rule", "Text": 'id = "broken-rule"\n'}])
+replan()
+rl = {r_["Id"]: r_ for r_ in rules_list()}
+e_ = rl.get("release-group-adverts", {})
+check("an edited built-in rule replaces the original", [e_.get("Custom"), e_.get("BuiltIn"), e_.get("BuiltInText") != e_.get("Text")], [True, True, True])
+b_ = rl.get("broken-rule", {})
+check("a broken rule from the settings is reported, not used", ["required" in (b_.get("Error") or ""), b_.get("Enabled")], [True, True])
+check("a broken rule does not stop planning", reason_of("Bonus Resources.txt"), "link-only text file (advert) [rule link-only-text]")
+lt = log_text()
+if lt is None:
+    info("a broken rule is logged: not checked (no --log-dir)")
+else:
+    check("a broken rule is logged", "rule broken-rule from the settings cannot be used" in lt, True)
+cfg(DisabledRules=[], CustomRules=[])
+replan()
+check("rules back to the built-in ones", [reason_of("section-slides.md"), iinfo(ADMIN, SEASONC).get("FileName")], ["kept", "additional-material.zip"])
+
+# ---- VirusTotal (a fake one, on this machine) ----------------------------------------------------
+def vttest(key, token=ADMIN):
+    return http("POST", "/AdditionalMaterial/VirusTotal/Test", token, {"Key": key})
+
+
+check("VirusTotal key test: readers refused", vttest("test-key", READER)[0], 403)
+if not args.fake_vt:
+    info("VirusTotal lookups: not checked (no --fake-vt)")
+else:
+    import atexit
+    fake = subprocess.Popen([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_virustotal.py"),
+                             str(args.fake_vt), "127.0.0.1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    atexit.register(fake.kill)
+    time.sleep(1)
+
+    def vtstats():
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{args.fake_vt}/stats", timeout=5) as r_:
+                return json.loads(r_.read())
+        except (urllib.error.URLError, ConnectionError, TimeoutError, ValueError):
+            return {}
+
+    good = js(vttest("test-key")) or {}
+    check("VirusTotal key test: a good key (the server reaches the fake)", good.get("Ok"), True)
+    if good.get("Ok") is not True:
+        bad("VirusTotal: the server is not pointed at the fake: start it with AM_VT_BASE=http://127.0.0.1:%d" % args.fake_vt)
+    else:
+        wrong = js(vttest("wrong-key")) or {}
+        check("VirusTotal key test: a wrong key, with VirusTotal's reason", [wrong.get("Ok"), "401" in (wrong.get("Message") or "")], [False, True])
+        TV = os.path.join(media, "training", "Course V"); TVS = os.path.join(TV, "Season 1"); os.makedirs(TVS)
+        content = {"S01E01 - Clean": b"clean tool", "S01E02 - Bad": b"bad tool", "S01E03 - Unknown": b"never seen"}
+        for stem, data in content.items():
+            shutil.copy(os.path.join(TCS, "S01E01 - Build Lesson.mp4"), os.path.join(TVS, stem + ".mp4"))
+            put(os.path.join(TVS, stem + ".txt"), f"notes for {stem}\n"); put(os.path.join(TVS, stem + ".exe"), data)
+        ev = wait_items(*[("training", "Course V", "Season 1", stem + ".mp4") for stem in content])
+        EV = {stem: ev[("training", "Course V", "Season 1", stem + ".mp4")] for stem in content}
+        if not all(EV.values()):
+            bad("VirusTotal: Course V not scanned")
+        else:
+            def scan_line(stem):
+                status_, _, body_ = entry(link(EV[stem]), stem + ".exe.REMOVED.txt")
+                m_ = re.search(r"^\s*Scan:\s*(.*?)\s*$", body_.decode("utf-8", "replace"), re.M) if status_ == 200 else None
+                return m_.group(1) if m_ else f"(HTTP {status_})"
+
+            cfg(VirusTotalApiKey="test-key", VirusTotalRequestsPerMinute=600, AllowCleanExecutables=False)
+            replan()
+            got = ""
+            for _ in range(60):
+                got = scan_line("S01E01 - Clean")
+                if got.startswith("VirusTotal:") and all(scan_line(s_).startswith("VirusTotal:") for s_ in ("S01E02 - Bad", "S01E03 - Unknown")):
+                    break
+                time.sleep(2)
+            check("VirusTotal: a known file's answer, in its note", got, "VirusTotal: known, flagged by 0 of 70 engines")
+            check("VirusTotal: a flagged file", scan_line("S01E02 - Bad"), "VirusTotal: FLAGGED by 12 engine(s) as malicious and 1 as suspicious, out of 70")
+            check("VirusTotal: a file it does not know", scan_line("S01E03 - Unknown"), "VirusTotal: not known to VirusTotal")
+            looked = vtstats().get("lookups", [])
+            mine = [hashlib.sha256(d).hexdigest() for d in content.values()]
+            check("VirusTotal: each blocked file looked up once, by its SHA-256", [looked.count(d) for d in mine] + [len(looked) == len(set(looked))], [1, 1, 1, True])
+            check("VirusTotal: nothing uploaded, nothing else asked", vtstats().get("other"), [])
+            n_looked = len(looked)
+            replan()
+            check("VirusTotal: answers remembered (no second lookup)", len(vtstats().get("lookups", [])), n_looked)
+            bad_e = next((e for e in cont(ADMIN, EV["S01E02 - Bad"]).get("Entries", []) if (e.get("Path") or "").endswith(".REMOVED.txt")), {})
+            check("VirusTotal: the contents view marks a flagged file",
+                  [bad_e.get("Flagged"), "FLAGGED by 12" in (bad_e.get("Scan") or ""), bad_e.get("ScanLink")],
+                  [True, True, "https://www.virustotal.com/gui/file/" + hashlib.sha256(b"bad tool").hexdigest()])
+            cfg(AllowCleanExecutables=True)
+            replan()
+            check("allow clean: a file no engine flags is included as is", kept(cont(ADMIN, EV["S01E01 - Clean"])), ["S01E01 - Clean.exe", "S01E01 - Clean.txt"])
+            check("allow clean: a flagged file is still a note", kept(cont(ADMIN, EV["S01E02 - Bad"])), ["S01E02 - Bad.exe.REMOVED.txt", "S01E02 - Bad.txt"])
+            check("allow clean: an unknown file is still a note", kept(cont(ADMIN, EV["S01E03 - Unknown"])), ["S01E03 - Unknown.exe.REMOVED.txt", "S01E03 - Unknown.txt"])
+            cfg(VirusTotalApiKey="", AllowCleanExecutables=False, VirusTotalRequestsPerMinute=4)
+            replan()
+            check("no key: notes say not checked again", scan_line("S01E02 - Bad"), "not checked")
+            check("no key: no lookups", len(vtstats().get("lookups", [])), n_looked)
+        shutil.rmtree(TV)
+        post("/Library/Refresh", ADMIN)
+        replan()
+
 cfg(BuildArchives=False)
 check("building off: built archives still served as they are", iinfo(ADMIN, EC2).get("FileName"), "S01E02 - Two Files.material.zip")
 cfg(BuildArchives=True)
@@ -1011,6 +1200,54 @@ else:
 shutil.rmtree(G)
 post("/Library/Refresh", ADMIN)
 post("/AdditionalMaterial/Index/Refresh", ADMIN); time.sleep(2); wait_build(lambda s: True)
+
+
+# ---- material added to an existing course, without a scan (folders watched) ------------------
+# Last, so the real-time monitoring it turns on cannot affect the checks before it.
+lt = log_text()
+if lt is not None:
+    check("real-time monitoring off: no folders watched", len(re.findall(r"watching \d+ folder\(s\) for changed material", lt)), 0)
+vf = js(get("/Library/VirtualFolders", ADMIN)) or []
+opts = next((v.get("LibraryOptions") for v in vf if v.get("ItemId") == TRAINING), None) or {}
+opts["EnableRealtimeMonitor"] = True
+post("/Library/VirtualFolders/LibraryOptions", ADMIN, {"Id": TRAINING, "LibraryOptions": opts})
+if lt is None:
+    info("watching: the folder list is not checked (no --log-dir); waiting a minute for the next sync")
+    time.sleep(75)
+else:
+    want = "watching 1 folder(s) for changed material: " + spath("media", "training")
+    got = False
+    for _ in range(50):
+        if any(norm(ln.split("Additional Material: ", 1)[-1].strip()) == norm(want) for ln in (log_text() or "").splitlines() if "watching" in ln):
+            got = True
+            break
+        time.sleep(2)
+    check("real-time monitoring on: the enabled library's folder is watched (the other is not enabled)", got, True)
+full_plans = len(re.findall(r"Additional Material: planned \d+ archives in", log_text() or ""))
+added = os.path.join(TCS, "S01E02 - Two Files.pdf")
+put(added, b"%PDF-1.4\nadded later\n")
+got = []
+for _ in range(45):
+    got = kept(cont(ADMIN, EC2))
+    if "S01E02 - Two Files.pdf" in got:
+        break
+    time.sleep(2)
+check("added material: in its lesson's contents within a minute, no re-read", got,
+      ["S01E02 - Two Files.docm.REMOVED.txt", "S01E02 - Two Files.pdf", "S01E02 - Two Files.txt"])
+status, _, zw = get(f"/AdditionalMaterial/Download/{link(EC2)}", auth=False)
+check("added material: in the built archive", raw_names(zw) if status == 200 else status,
+      ["S01E02 - Two Files.docm.REMOVED.txt", "S01E02 - Two Files.pdf", "S01E02 - Two Files.txt"])
+if args.log_dir:
+    check("added material: no full re-plan", len(re.findall(r"Additional Material: planned \d+ archives in", log_text() or "")), full_plans)
+os.remove(added)
+for _ in range(45):
+    got = kept(cont(ADMIN, EC2))
+    if "S01E02 - Two Files.pdf" not in got:
+        break
+    time.sleep(2)
+check("removed material: gone from the contents within a minute", got, ["S01E02 - Two Files.docm.REMOVED.txt", "S01E02 - Two Files.txt"])
+opts["EnableRealtimeMonitor"] = False
+post("/Library/VirtualFolders/LibraryOptions", ADMIN, {"Id": TRAINING, "LibraryOptions": opts})
 
 # ---- what the browser test needs ------------------------------------------------------
 rel = {"course": ["training", "Course A", "additional-material.zip"],

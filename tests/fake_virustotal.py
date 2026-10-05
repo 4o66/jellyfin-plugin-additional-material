@@ -4,7 +4,7 @@ Knows two files by content: b"clean tool" (no engine flags it) and b"bad tool" (
 any other file is unknown (404). The key must be "test-key" (401 otherwise). GET /stats reports
 what was asked (key tests apart), so a test can prove only fingerprints were sent and nothing was uploaded.
 
-  python fake_virustotal.py [port]      (default 8000)
+  python fake_virustotal.py [port] [host]      (default 8000, all addresses)
 
 Standard library only.
 """
@@ -59,4 +59,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    http.server.ThreadingHTTPServer(("0.0.0.0", int(sys.argv[1]) if len(sys.argv) > 1 else 8000), Handler).serve_forever()
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+    host = sys.argv[2] if len(sys.argv) > 2 else "0.0.0.0"
+    http.server.ThreadingHTTPServer((host, port), Handler).serve_forever()
