@@ -18,6 +18,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<BuiltRegistry>();
         serviceCollection.AddSingleton<RuleStore>();
         serviceCollection.AddSingleton<VirusTotal>();
+        serviceCollection.AddSingleton<BundleBuilder>();
+        serviceCollection.AddSingleton<BundleStore>();
         serviceCollection.AddSingleton<ArchivePlans>();
         serviceCollection.AddSingleton<ArchiveBuilder>();
         serviceCollection.AddSingleton<MaterialRefresh>();

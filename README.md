@@ -84,6 +84,27 @@ non-commercial use only. When the daily quota runs out, lookups pause for an hou
 - Zips inside an archive are listed too, and their files downloadable (a setting).
 - Without the Download permission, users see the contents with the download buttons disabled.
 
+## Download everything
+
+Course and section pages offer **Download everything** at the foot of the picker: one zip with all
+the material the picker lists, in folders that mirror the course (`Course/Section/Lesson/…`). Each
+archive is unpacked into its folder, so a single unzip gives the whole course; one-file material
+goes in as that file, removal notes as they are, and zips inside the material (lab packs) stay zips.
+It holds only what the user can see, needs the download permission, and follows **Show material
+from lower levels on**. Names that Windows cannot use are made safe.
+
+Entries are stored, not compressed (course material is mostly PDFs and zips already), so the exact
+size is known and shown before the download starts. Settings → Contents:
+
+- **Stream it when it is smaller than** (default 150 MB): a smaller one downloads at once, put
+  together as it goes. A larger one is **prepared on disk first**, with its progress on the button,
+  and its download can be resumed.
+- **Keep streamed ones on disk** (on by default): the next download of the same material is served
+  from disk and can be resumed. An interrupted download is never kept.
+
+Kept and prepared bundles are in the plugin's data folder, named by their content, so a bundle is
+only ever used while its material is unchanged. One not downloaded for 7 days is removed.
+
 ## How it finds material
 
 The plugin looks for a `.zip` with a fixed name. It keeps a small in-memory index of which folders

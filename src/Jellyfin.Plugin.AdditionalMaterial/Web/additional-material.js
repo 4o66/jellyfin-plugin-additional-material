@@ -45,6 +45,11 @@
         'dialog.files': '{count} files',
         'dialog.removed': 'removed, replaced by a note',
         'dialog.removedFlagged': 'removed: flagged by VirusTotal, replaced by a note',
+        'dialog.everything': 'Download everything (.zip)',
+        'dialog.everythingSize': 'Download everything (.zip, {size})',
+        'dialog.everythingTitle': 'All the material listed here, in one zip, in folders by section and lesson',
+        'dialog.preparing': 'Preparing\u2026 {progress}%',
+        'dialog.preparingFailed': 'It could not be prepared. Try again in a moment.',
         'dialog.nestedTooLarge': 'too large to list',
         'dialog.truncated': 'Showing the first {count} files.',
         'dialog.loading': 'Loading…',
@@ -181,6 +186,46 @@
         return (tr.Self ? 1 : 0) + tr.Groups.reduce(function (n, g) { return n + g.Items.length; }, 0);
     }
 
+    function startDownload(url) {
+        var a = document.createElement('a');
+        a.href = url;
+        a.rel = 'noopener noreferrer';
+        a.setAttribute('download', '');
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    }
+
+    // "Download everything": streamed or ready on disk, it downloads at once; a large one is
+    // prepared first, with its progress on the button, then downloads.
+    function downloadEverything(client, itemId, button) {
+        var label = button.textContent;
+        button.disabled = true;
+        function attempt() {
+            return getJson(client, 'AdditionalMaterial/Items/' + itemId + '/Everything', { method: 'POST' }).then(function (s) {
+                if (s.Token) {
+                    startDownload(client.getUrl('AdditionalMaterial/Download/' + s.Token) + '?bundle=1');
+                    button.textContent = label;
+                    button.disabled = false;
+                    return null;
+                }
+                if (s.Mode !== 'prepare' && s.Mode !== 'preparing') {
+                    throw new Error('bundle ' + s.Mode);
+                }
+                button.textContent = t('dialog.preparing', { progress: Math.floor(s.Progress || 0) });
+                if (!button.isConnected) {
+                    return null;   // the picker was closed: it carries on preparing, and is ready next time
+                }
+                return new Promise(function (resolve) { setTimeout(resolve, 2000); }).then(attempt);
+            });
+        }
+        return attempt().catch(function (err) {
+            window.console && console.warn('Additional Material: download everything failed', err);
+            button.textContent = t('dialog.preparingFailed');
+            button.disabled = false;
+        });
+    }
+
     // Downloads an item's archive, or with entry, one file inside it.
     function download(client, itemId, button, entry) {
         if (button) {
@@ -188,13 +233,7 @@
         }
         return getJson(client, 'AdditionalMaterial/Items/' + itemId + '/Link', { method: 'POST' })
             .then(function (link) {
-                var a = document.createElement('a');
-                a.href = client.getUrl('AdditionalMaterial/Download/' + link.Token) + (entry ? '?entry=' + encodeURIComponent(entry) : '');
-                a.rel = 'noopener noreferrer';
-                a.setAttribute('download', '');
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
+                startDownload(client.getUrl('AdditionalMaterial/Download/' + link.Token) + (entry ? '?entry=' + encodeURIComponent(entry) : ''));
             })
             .catch(function (err) {
                 window.console && console.warn('Additional Material: download failed', err);
@@ -542,10 +581,22 @@
             }
         }
         dialog.appendChild(body);
+        var foot = (tr.Self || tr.Everything) ? el('div', 'am-foot') : null;
+        if (tr.Everything) {
+            // Everything listed here in one zip. Its size is asked for once the picker is open.
+            var every = el('button', 'am-download-everything', t('dialog.everything'));
+            every.type = 'button';
+            every.title = t('dialog.everythingTitle');
+            every.disabled = !tr.CanDownload;
+            every.addEventListener('click', function () { downloadEverything(client, tr.ItemId, every); });
+            foot.appendChild(every);
+            getJson(client, 'AdditionalMaterial/Items/' + tr.ItemId + '/Everything').then(function (s) {
+                every.textContent = t('dialog.everythingSize', { size: formatSize(s.Size) });
+            }).catch(function () { every.remove(); });
+        }
         if (tr.Self) {
             // The item's own archive, downloadable from the foot of the picker: everything when it is
             // the only archive, otherwise this level's (the course's or section's) archive.
-            var foot = el('div', 'am-foot');
             var one = !/\.zip$/i.test(tr.Self.FileName || '');
             var levelKey = 'dialog.downloadLevel.' + tr.Type;
             var all = el('button', 'am-download-all', one
@@ -557,6 +608,8 @@
             all.disabled = !tr.CanDownload;
             all.addEventListener('click', function () { download(client, tr.Self.ItemId, all); });
             foot.appendChild(all);
+        }
+        if (foot) {
             dialog.appendChild(foot);
         }
         backdrop.appendChild(dialog);

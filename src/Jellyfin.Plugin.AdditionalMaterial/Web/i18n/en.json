@@ -163,5 +163,17 @@
   "config.vt.none": "Enter a key first.",
   "config.vt.hide": "Hide",
   "config.vt.show": "Show",
-  "dialog.removedFlagged": "removed: flagged by VirusTotal, replaced by a note"
+  "dialog.removedFlagged": "removed: flagged by VirusTotal, replaced by a note",
+  "config.everything": "Download everything",
+  "config.everythingOffer": "Offer \"Download everything\" on course and section pages",
+  "config.everythingHelp": "One zip with all the material the picker lists, each archive unpacked into a folder by section and lesson. It follows \"Show material from lower levels on\" (Appearance), and holds only what the user can see.",
+  "config.everythingStream": "Stream it when it is smaller than (MB)",
+  "config.everythingStreamHelp": "A smaller one downloads at once, put together as it goes. A larger one is prepared on disk first (the picker shows its progress), and its download can be resumed. 0 prepares every one first.",
+  "config.everythingKeep": "Keep streamed ones on disk",
+  "config.everythingKeepHelp": "The next download of the same material is then served from disk, and can be resumed. Kept and prepared ones are in the plugin's data folder, used only while the material is unchanged, and removed after 7 days without a download.",
+  "dialog.everything": "Download everything (.zip)",
+  "dialog.everythingSize": "Download everything (.zip, {size})",
+  "dialog.everythingTitle": "All the material listed here, in one zip, in folders by section and lesson",
+  "dialog.preparing": "Preparing… {progress}%",
+  "dialog.preparingFailed": "It could not be prepared. Try again in a moment."
 }

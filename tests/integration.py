@@ -947,6 +947,168 @@ def wait_items(*paths_):
     return found
 
 
+# ---- download everything -----------------------------------------------------------------------
+import io
+
+
+def every(token, item_id):
+    return js(get(f"/AdditionalMaterial/Items/{item_id}/Everything", token)) or {}
+
+
+def everypost(token, item_id):
+    return js(post(f"/AdditionalMaterial/Items/{item_id}/Everything", token)) or {}
+
+
+def bundle_get(item_id, headers=None):
+    tok = everypost(ADMIN, item_id).get("Token")
+    return get(f"/AdditionalMaterial/Download/{tok}?bundle=1", auth=False, headers=headers or {})
+
+
+def bnames(data):
+    try:
+        return sorted(zipfile.ZipFile(io.BytesIO(data)).namelist())
+    except zipfile.BadZipFile as e_:
+        return [str(e_)]
+
+
+def bvalid(data):
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z_:
+            return z_.testzip() is None and all(i.compress_type == zipfile.ZIP_STORED for i in z_.infolist())
+    except zipfile.BadZipFile:
+        return False
+
+
+BUNDLES = os.path.join(args.data_dir, "plugins", "Jellyfin.Plugin.AdditionalMaterial", "bundles") if args.data_dir else None
+
+
+def kept_count():
+    if not BUNDLES:
+        return None
+    for _ in range(20):
+        names_ = os.listdir(BUNDLES) if os.path.isdir(BUNDLES) else []
+        if not any(n.endswith(".tmp") for n in names_):
+            break
+        time.sleep(0.5)
+    names_ = os.listdir(BUNDLES) if os.path.isdir(BUNDLES) else []
+    return [sum(n.endswith(".zip") for n in names_), sum(n.endswith(".tmp") for n in names_)]
+
+
+cfg(KeepStreamedBundles=False, StreamBundlesBelowMegabytes=150, OfferDownloadEverything=True, ShowOnParents="all")
+check("everything: offered on a course with several archives", (js(get(f"/AdditionalMaterial/Items/{SERIES}/Tree", ADMIN)) or {}).get("Everything"), True)
+check("everything: offered on a section with lessons", (js(get(f"/AdditionalMaterial/Items/{SEASONC}/Tree", ADMIN)) or {}).get("Everything"), True)
+check("everything: not on a lesson", (js(get(f"/AdditionalMaterial/Items/{E1}/Tree", ADMIN)) or {}).get("Everything"), False)
+ea = every(ADMIN, SERIES)
+check("everything: size, count and streaming for a small course",
+      [ea.get("Downloads"), ea.get("Mode"), (ea.get("Size") or 0) > 0, (ea.get("FileName") or "").endswith(" (all).zip")], [3, "stream", True, True])
+status, hdrs, ba = bundle_get(SERIES)
+check("everything: streamed download 200", status, 200)
+check("everything: exactly the size announced", len(ba), ea.get("Size"))
+check("everything: Content-Length matches", int((hdrs or {}).get("Content-Length") or -1), len(ba))
+check("everything: named ... (all).zip", "(all).zip" in ((hdrs or {}).get("Content-Disposition") or ""), True)
+check("everything: a valid zip, every entry stored (CRCs checked)", bvalid(ba), True)
+LA = "Course A/Season 1/S01E01 - Lesson One/"
+check("everything: archives unpacked into folders that mirror the course", bnames(ba),
+      [LA + "labs.zip", LA + "notes.txt", LA + "slides/intro.txt", LA + "tool.exe.REMOVED.txt", "Course A/Season 1/notes.txt", "Course A/notes.txt"])
+try:
+    with zipfile.ZipFile(io.BytesIO(ba)) as z_, zipfile.ZipFile(L1) as src:
+        same = all(z_.read(LA + n) == src.read(n) for n in ["notes.txt", "slides/intro.txt", "labs.zip"])
+except (KeyError, zipfile.BadZipFile, OSError) as e_:
+    same = str(e_)
+check("everything: files are the archive's, byte for byte (a zip inside stays a zip)", same, True)
+check("everything: not kept when keeping is off", (kept_count() or [0])[0], 0)
+status, _, bc = bundle_get(SERIESC)
+LC = "Course C/Season 1/"
+check("everything (planned): download 200, valid", [status, bvalid(bc)], [200, True])
+check("everything (planned): files, notes and single files, no left-out ones", bnames(bc),
+      [LC + "S01E01 - Build Lesson/S01E01 - Build Lesson.pdf", LC + "S01E02 - Two Files/S01E02 - Two Files.docm.REMOVED.txt",
+       LC + "S01E02 - Two Files/S01E02 - Two Files.txt", LC + "notes.txt", LC + "section-slides.md", "Course C/readme.txt"])
+try:
+    with zipfile.ZipFile(io.BytesIO(bc)) as z_:
+        orig = z_.read(LC + "S01E02 - Two Files/S01E02 - Two Files.txt") == readb(os.path.join(TCS, "S01E02 - Two Files.txt"))
+        note = z_.read(LC + "S01E02 - Two Files/S01E02 - Two Files.docm.REMOVED.txt").startswith(b"REMOVED: S01E02 - Two Files.docm")
+except (KeyError, zipfile.BadZipFile) as e_:
+    orig = note = str(e_)
+check("everything (planned): the original file, and the removal note", [orig, note], [True, True])
+status, _, bs = bundle_get(SEASONC)
+LS = "Course C - Season 1/"
+check("everything (section): its own material at the top", [status] + bnames(bs),
+      [200, LS + "S01E01 - Build Lesson/S01E01 - Build Lesson.pdf", LS + "S01E02 - Two Files/S01E02 - Two Files.docm.REMOVED.txt",
+       LS + "S01E02 - Two Files/S01E02 - Two Files.txt", LS + "notes.txt", LS + "section-slides.md"])
+cfg(KeepStreamedBundles=True)
+_, _, ba2 = bundle_get(SERIES)
+if BUNDLES:
+    check("keep streamed: kept on disk after a complete download", kept_count(), [1, 0])
+else:
+    info("keep streamed: the bundle folder is not checked (no --data-dir)")
+check("keep streamed: the same bundle", hashlib.sha256(ba2).hexdigest(), hashlib.sha256(ba).hexdigest())
+check("keep streamed: offered as ready", every(ADMIN, SERIES).get("Mode"), "ready")
+status, _, part = bundle_get(SERIES, headers={"Range": "bytes=10-19"})
+check("kept: a range can be resumed", [status, part], [206, ba[10:20]])
+# Large ones (here every one, at 0 MB) are prepared on disk first. This section's bundle was never kept.
+cfg(StreamBundlesBelowMegabytes=0)
+check("prepare: announced as to be prepared", every(ADMIN, SEASONC).get("Mode"), "prepare")
+check("prepare: a direct download is refused until prepared", get(f"/AdditionalMaterial/Download/{link(SEASONC)}?bundle=1", auth=False)[0], 409)
+st_ = {}
+for _ in range(30):
+    st_ = everypost(ADMIN, SEASONC)
+    if st_.get("Token"):
+        break
+    time.sleep(1)
+check("prepare: becomes ready, with a link", [st_.get("Mode"), bool(st_.get("Token"))], ["ready", True])
+status, _, bp = get(f"/AdditionalMaterial/Download/{st_.get('Token')}?bundle=1", auth=False)
+check("prepare: downloads, valid, the section's files", [status, bvalid(bp), bnames(bp)], [200, True, bnames(bs)])
+cfg(StreamBundlesBelowMegabytes=150)
+check("everything: someone without the library cannot", code("GET", f"/AdditionalMaterial/Items/{SERIES}/Everything", OUTSIDE), 404)
+check("everything: without download permission, no link", everypost(READER, SERIES).get("Token"), None)
+check("everything: unauthenticated refused", get(f"/AdditionalMaterial/Items/{SERIES}/Everything", auth=False)[0], 401)
+cfg(ShowOnParents="section")
+check("levels=section: not on a course", [(js(get(f"/AdditionalMaterial/Items/{SERIES}/Tree", ADMIN)) or {}).get("Everything"), code("GET", f"/AdditionalMaterial/Items/{SERIES}/Everything", ADMIN)], [False, 404])
+check("levels=section: still on a section", (js(get(f"/AdditionalMaterial/Items/{SEASONC}/Tree", ADMIN)) or {}).get("Everything"), True)
+cfg(ShowOnParents="all", OfferDownloadEverything=False)
+check("turned off: not offered", [(js(get(f"/AdditionalMaterial/Items/{SERIES}/Tree", ADMIN)) or {}).get("Everything"), code("GET", f"/AdditionalMaterial/Items/{SERIES}/Everything", ADMIN)], [False, 404])
+cfg(OfferDownloadEverything=True)
+# Names that are not safe on Windows, or try to leave their folder, from an archive made by hand.
+TW = os.path.join(media, "training", "Course W"); TWS = os.path.join(TW, "Season 1"); os.makedirs(TWS)
+shutil.copy(os.path.join(TCS, "S01E01 - Build Lesson.mp4"), os.path.join(TWS, "S01E01 - Odd.mp4"))
+with zipfile.ZipFile(os.path.join(TWS, "S01E01 - Odd.material.zip"), "w") as z_:
+    for n in ["a:b?.txt", "../escape.txt", "CON.txt", "dir\\back.txt", "trailing. "]:
+        z_.writestr(zipfile.ZipInfo(n, date_time=(2026, 1, 1, 0, 0, 0)), n)   # ZipInfo: zipfile would tidy the names on Windows
+    z_.writestr("big.dat", os.urandom(32 * 1024 * 1024))   # big enough to cut a download off mid-way
+with zipfile.ZipFile(os.path.join(TW, "additional-material.zip"), "w") as z_:
+    z_.writestr("readme.txt", "course W")
+if WINDOWS:
+    subprocess.run(["icacls", TW, "/grant", f"{args.service_sid or SERVICE_SID}:(OI)(CI)RX", "/T", "/Q"], check=False, stdout=subprocess.DEVNULL)
+SERIESW = wait_items(("training", "Course W"), ("training", "Course W", "Season 1", "S01E01 - Odd.mp4")).get(("training", "Course W"))
+post("/AdditionalMaterial/Index/Refresh", ADMIN); time.sleep(3)
+if not SERIESW:
+    bad("unsafe names: Course W not scanned")
+else:
+    before_kept = kept_count()
+    tok_w = everypost(ADMIN, SERIESW).get("Token")
+    try:
+        with urllib.request.urlopen(BASE + f"/AdditionalMaterial/Download/{tok_w}?bundle=1", timeout=60) as r_:
+            r_.read(1024)   # and hang up
+    except (urllib.error.URLError, ConnectionError, TimeoutError):
+        pass
+    time.sleep(2)
+    if BUNDLES:
+        check("keep streamed: an interrupted download is not kept", kept_count(), before_kept)
+    status, _, bw = bundle_get(SERIESW)
+    LW = "Course W/Season 1/S01E01 - Odd/"
+    check("unsafe names: made safe, nothing leaves its folder", bnames(bw),
+          [LW + "_CON.txt", LW + "a_b_.txt", LW + "big.dat", LW + "dir/back.txt", LW + "escape.txt", LW + "trailing", "Course W/readme.txt"])
+    try:
+        with zipfile.ZipFile(io.BytesIO(bw)) as z_, zipfile.ZipFile(os.path.join(TWS, "S01E01 - Odd.material.zip")) as src:
+            big_ok = z_.read(LW + "big.dat") == src.read("big.dat")
+    except (KeyError, zipfile.BadZipFile) as e_:
+        big_ok = str(e_)
+    check("a 32 MB entry: intact", big_ok, True)
+    if BUNDLES:
+        check("keep streamed: the complete one is kept", kept_count()[0], before_kept[0] + 1)
+shutil.rmtree(TW)
+post("/Library/Refresh", ADMIN)
+
 # ---- rules from the settings ------------------------------------------------------------------
 def rules_list(token=ADMIN):
     return js(get("/AdditionalMaterial/Rules", token)) or []

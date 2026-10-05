@@ -171,6 +171,27 @@
                                     <div class="fieldDescription checkboxFieldDescription" data-i18n="config.nestedHelp">A zip inside an archive (for example a lab pack) can then be opened in the Contents view and its files downloaded one by one.</div>
                                 </div>
                             </div>
+                            <div class="verticalSection">
+                                <h3 class="sectionTitle" data-i18n="config.everything">Download everything</h3>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amEvery" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.everythingOffer">Offer "Download everything" on course and section pages</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.everythingHelp">One zip with all the material the picker lists, each archive unpacked into a folder by section and lesson. It follows "Show material from lower levels on" (Appearance), and holds only what the user can see.</div>
+                                </div>
+                                <div class="inputContainer">
+                                    <input id="amEveryMB" type="number" is="emby-input" min="0" max="1000000" label="Stream it when it is smaller than (MB)" data-i18n-label="config.everythingStream" />
+                                    <div class="fieldDescription" data-i18n="config.everythingStreamHelp">A smaller one downloads at once, put together as it goes. A larger one is prepared on disk first (the picker shows its progress), and its download can be resumed. 0 prepares every one first.</div>
+                                </div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="amEveryKeep" type="checkbox" is="emby-checkbox" />
+                                        <span data-i18n="config.everythingKeep">Keep streamed ones on disk</span>
+                                    </label>
+                                    <div class="fieldDescription checkboxFieldDescription" data-i18n="config.everythingKeepHelp">The next download of the same material is then served from disk, and can be resumed. Kept and prepared ones are in the plugin's data folder, used only while the material is unchanged, and removed after 7 days without a download.</div>
+                                </div>
+                            </div>
                         </section>
 
                         <!-- Building -->
@@ -770,6 +791,9 @@
                     page.querySelector('#amCards').checked = config.ShowOnCards !== false;
                     page.querySelector('#amLists').checked = config.ShowInLists !== false;
                     page.querySelector('#amNested').checked = config.ListNestedZips !== false;
+                    page.querySelector('#amEvery').checked = config.OfferDownloadEverything !== false;
+                    page.querySelector('#amEveryMB').value = config.StreamBundlesBelowMegabytes === 0 ? 0 : (config.StreamBundlesBelowMegabytes || 150);
+                    page.querySelector('#amEveryKeep').checked = config.KeepStreamedBundles !== false;
                     page.querySelector('#amBuild').checked = config.BuildArchives === true;
                     page.querySelector('#amBuildBg').checked = config.BuildInBackground !== false;
                     page.querySelector('input[name=amLocation][value=' + (config.BuiltArchiveLocation === 'cache' ? 'cache' : 'beside') + ']').checked = true;
@@ -811,6 +835,10 @@
                         config.ShowOnCards = page.querySelector('#amCards').checked;
                         config.ShowInLists = page.querySelector('#amLists').checked;
                         config.ListNestedZips = page.querySelector('#amNested').checked;
+                        config.OfferDownloadEverything = page.querySelector('#amEvery').checked;
+                        var everyMB = parseInt(page.querySelector('#amEveryMB').value, 10);
+                        config.StreamBundlesBelowMegabytes = isNaN(everyMB) || everyMB < 0 ? 150 : everyMB;
+                        config.KeepStreamedBundles = page.querySelector('#amEveryKeep').checked;
                         config.BuildArchives = page.querySelector('#amBuild').checked;
                         config.BuildInBackground = page.querySelector('#amBuildBg').checked;
                         config.BuiltArchiveLocation = page.querySelector('input[name=amLocation]:checked').value;

@@ -87,6 +87,18 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string ShowLeftOutFiles { get; set; } = "everyone";
 
+    /// <summary>Gets or sets a value indicating whether course and section pages offer "Download everything": all the material the picker lists, in one zip.</summary>
+    public bool OfferDownloadEverything { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the size, in MB, below which "Download everything" is streamed as it is put
+    /// together. From this size it is prepared on disk first, and its download can be resumed.
+    /// </summary>
+    public int StreamBundlesBelowMegabytes { get; set; } = 150;
+
+    /// <summary>Gets or sets a value indicating whether a streamed bundle is also kept on disk, so the next download of the same material is served from there.</summary>
+    public bool KeepStreamedBundles { get; set; } = true;
+
     /// <summary>Gets or sets the ids of rules that are turned off (built-in or the administrator's own).</summary>
     public string[] DisabledRules { get; set; } = Array.Empty<string>();
 

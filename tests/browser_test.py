@@ -120,6 +120,20 @@ with sync_playwright() as p:
         with page.expect_download(timeout=30000) as d:
             foot.click()
         check("foot button downloads the course archive", hashlib.sha256(open(d.value.path(), "rb").read()).hexdigest() == expected)
+        every = dialog.locator(".am-download-everything")
+        try:
+            page.wait_for_function("() => /Download everything \\(\\.zip, [0-9]/.test((document.querySelector('.am-download-everything') || {}).textContent || '')", timeout=10000)
+            check("picker's foot offers Download everything, with its size", True)
+        except Exception as e:  # noqa: BLE001
+            check("picker's foot offers Download everything, with its size", False, every.inner_text() if every.count() else "missing")
+        if every.count():
+            import zipfile
+            with page.expect_download(timeout=30000) as d:
+                every.click()
+            names = sorted(zipfile.ZipFile(d.value.path()).namelist())
+            check("Download everything: one zip, folders by section and lesson",
+                  "Course A/notes.txt" in names and any(n.startswith("Course A/Season 1/S01E01 - Lesson One/") for n in names), str(names)[:200])
+            check("Download everything: named (all).zip", d.value.suggested_filename.endswith("(all).zip"), d.value.suggested_filename)
         check("listing has course, section and lesson rows", dialog.locator(".am-row").count() == 3, str(dialog.locator(".am-row").count()))
         with page.expect_download(timeout=30000) as d:
             dialog.locator(".am-row").nth(0).locator(".am-download").click()

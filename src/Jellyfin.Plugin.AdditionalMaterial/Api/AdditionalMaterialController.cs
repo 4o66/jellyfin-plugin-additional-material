@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
@@ -41,6 +42,8 @@ public class AdditionalMaterialController : ControllerBase
     private readonly MaterialRefresh _refresh;
     private readonly RuleStore _rules;
     private readonly VirusTotal _virusTotal;
+    private readonly BundleBuilder _bundles;
+    private readonly BundleStore _bundleStore;
     private readonly Microsoft.Extensions.Logging.ILogger<AdditionalMaterialController> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="AdditionalMaterialController"/> class.</summary>
@@ -54,9 +57,13 @@ public class AdditionalMaterialController : ControllerBase
     /// <param name="refresh">Re-reads folders, plans and builds.</param>
     /// <param name="rules">The rules in force.</param>
     /// <param name="virusTotal">VirusTotal lookups.</param>
+    /// <param name="bundles">Puts "Download everything" bundles together.</param>
+    /// <param name="bundleStore">Bundles kept on disk.</param>
     /// <param name="logger">Logger.</param>
-    public AdditionalMaterialController(ILibraryManager libraryManager, IUserManager userManager, MaterialLocator locator, LinkSigner signer, ArchiveContents contents, MaterialIndex index, ArchiveBuilder builder, MaterialRefresh refresh, RuleStore rules, VirusTotal virusTotal, Microsoft.Extensions.Logging.ILogger<AdditionalMaterialController> logger)
+    public AdditionalMaterialController(ILibraryManager libraryManager, IUserManager userManager, MaterialLocator locator, LinkSigner signer, ArchiveContents contents, MaterialIndex index, ArchiveBuilder builder, MaterialRefresh refresh, RuleStore rules, VirusTotal virusTotal, BundleBuilder bundles, BundleStore bundleStore, Microsoft.Extensions.Logging.ILogger<AdditionalMaterialController> logger)
     {
+        _bundles = bundles;
+        _bundleStore = bundleStore;
         _rules = rules;
         _virusTotal = virusTotal;
         _builder = builder;
@@ -229,7 +236,7 @@ public class AdditionalMaterialController : ControllerBase
         {
             return NotFound();
         }
-        var tree = new MaterialTree { Name = item.Name, Type = item.GetBaseItemKind().ToString(), CanDownload = CanDownload(user), Self = Row(item, _locator.Find(item), "self") };
+        var tree = new MaterialTree { ItemId = item.Id.ToString("N", CultureInfo.InvariantCulture), Name = item.Name, Type = item.GetBaseItemKind().ToString(), CanDownload = CanDownload(user), Self = Row(item, _locator.Find(item), "self") };
         foreach (var (row, season) in Below(item, user))
         {
             var key = season?.Id ?? Guid.Empty;
@@ -244,6 +251,7 @@ public class AdditionalMaterialController : ControllerBase
         }
 
         tree.Groups.Sort((a, b) => (a.IndexNumber ?? int.MaxValue).CompareTo(b.IndexNumber ?? int.MaxValue));
+        tree.Everything = BundleBuilder.Offered(item) && (tree.Self is null ? 0 : 1) + tree.Groups.Sum(g => g.Items.Count) >= 2;
         foreach (var g in tree.Groups)
         {
             g.Items.Sort((a, b) => string.CompareOrdinal(a.Level, b.Level) != 0
@@ -420,9 +428,10 @@ public class AdditionalMaterialController : ControllerBase
     /// <param name="token">Token from <see cref="CreateLink"/>.</param>
     /// <returns>The archive, always as an attachment.</returns>
     /// <param name="entry">Optional: one file inside the archive, as the Contents listing names it.</param>
+    /// <param name="bundle">Optional: <c>1</c> downloads everything the item's picker lists, in one zip.</param>
     [HttpGet("Download/{token}")]
     [AllowAnonymous]
-    public ActionResult Download([FromRoute] string token, [FromQuery] string? entry)
+    public async System.Threading.Tasks.Task<ActionResult> Download([FromRoute] string token, [FromQuery] string? entry, [FromQuery] string? bundle)
     {
         if (!_signer.TryValidate(token, out var itemId, out var userId))
         {
@@ -436,6 +445,11 @@ public class AdditionalMaterialController : ControllerBase
         }
 
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+        if (item is not null && bundle == "1")
+        {
+            return await DownloadBundle(item, user).ConfigureAwait(false);
+        }
+
         var material = item is null ? null : _locator.FindVerified(item);
         if (material is null)
         {
@@ -526,6 +540,80 @@ public class AdditionalMaterialController : ControllerBase
         return built is null ? NotFound() : ServeFile(built, MaterialLocator.ContentTypeFor("zip"), DownloadName(item), enableRangeProcessing: true);
     }
 
+    private static long StreamBelow() => Math.Max(0, Plugin.Instance?.Configuration.StreamBundlesBelowMegabytes ?? 150) * 1024L * 1024;
+
+    private static string BundleName(BaseItem item) => DownloadName(item)[..^".zip".Length] + " (all).zip";
+
+    /// <summary>Everything at once: served from disk if kept or prepared, streamed if small enough, otherwise not yet (prepare it first).</summary>
+    private async System.Threading.Tasks.Task<ActionResult> DownloadBundle(BaseItem item, User user)
+    {
+        var plan = _bundles.Plan(item, user);
+        if (plan is null)
+        {
+            return NotFound();
+        }
+
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        Response.Headers["Referrer-Policy"] = "no-referrer";
+        Response.Headers["Cache-Control"] = "private, no-store";
+        var name = BundleName(item);
+        if (_bundleStore.Ready(plan.Key) is { } kept)
+        {
+            return ServeFile(kept, "application/zip", name, enableRangeProcessing: true);
+        }
+
+        if (plan.Length >= StreamBelow())
+        {
+            return Conflict();   // to be prepared first (Items/{id}/Everything)
+        }
+
+        Response.ContentType = "application/zip";
+        Response.ContentLength = plan.Length;
+        var disposition = new Microsoft.Net.Http.Headers.ContentDispositionHeaderValue("attachment");
+        disposition.SetHttpFileName(SafeFileName(name, "Additional Material (all).zip"));
+        Response.Headers["Content-Disposition"] = disposition.ToString();
+        var aborted = HttpContext.RequestAborted;
+        if (Plugin.Instance?.Configuration.KeepStreamedBundles != true)
+        {
+            await StoredZip.WriteAsync(plan.Entries, Response.Body, aborted).ConfigureAwait(false);
+            return new EmptyResult();
+        }
+
+        string? tmp = null;
+        try
+        {
+            var copy = _bundleStore.Open(plan.Key, out var path);
+            tmp = path;
+            var complete = false;
+            await using (copy.ConfigureAwait(false))
+            {
+                var tee = new TeeStream(Response.Body, copy);
+                await StoredZip.WriteAsync(plan.Entries, tee, aborted).ConfigureAwait(false);
+                complete = tee.CopyComplete;
+            }
+
+            if (complete)
+            {
+                _bundleStore.Keep(plan, tmp);
+            }
+            else
+            {
+                BundleStore.Discard(tmp);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException || ex is IOException || ex is InvalidDataException)
+        {
+            if (tmp is not null)
+            {
+                BundleStore.Discard(tmp);
+            }
+
+            _logger.LogInformation("Additional Material: a streamed bundle for {Item} did not finish: {Reason}", item.Name, ex.Message);
+        }
+
+        return new EmptyResult();
+    }
+
     /// <summary>
     /// Serves a file as an attachment, opened so that it can still be replaced or deleted while it
     /// downloads: on Windows a plain open would block rebuilding or moving the archive meanwhile.
@@ -606,6 +694,58 @@ public class AdditionalMaterialController : ControllerBase
         {
             return 0;
         }
+    }
+
+    /// <summary>
+    /// "Download everything" for a course or section: its size, and whether it streams, is ready
+    /// on disk, or must be prepared first. With <c>POST</c>, also a download link once it can be
+    /// downloaded, and preparing is started when it must be.
+    /// </summary>
+    /// <param name="itemId">A course (series) or section (season).</param>
+    /// <returns>The status.</returns>
+    [HttpGet("Items/{itemId}/Everything")]
+    [HttpPost("Items/{itemId}/Everything")]
+    [Authorize]
+    [Produces(MediaTypeNames.Application.Json)]
+    public ActionResult<BundleStatus> Everything([FromRoute] Guid itemId)
+    {
+        var user = CurrentUser();
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+        var plan = item is null ? null : _bundles.Plan(item, user);
+        if (plan is null)
+        {
+            return NotFound();
+        }
+
+        var status = new BundleStatus { Size = plan.Length, Downloads = plan.Downloads, FileName = BundleName(item!) };
+        var post = HttpMethods.IsPost(Request.Method);
+        if (_bundleStore.Ready(plan.Key) is not null)
+        {
+            status.Mode = "ready";
+        }
+        else if (plan.Length < StreamBelow())
+        {
+            status.Mode = "stream";
+        }
+        else
+        {
+            var progress = post && CanDownload(user) ? _bundleStore.Prepare(plan) : _bundleStore.Progress(plan.Key);
+            status.Mode = progress is null ? "prepare" : progress.Failed ? "failed" : "preparing";   // "ready" only once it is on disk
+            status.Progress = progress is null || progress.Total == 0 ? 0 : Math.Round(100.0 * progress.Written / progress.Total, 1);
+        }
+
+        if (post && CanDownload(user) && status.Mode is "ready" or "stream")
+        {
+            var minutes = Math.Clamp(Plugin.Instance?.Configuration.LinkLifetimeMinutes ?? 10, 1, 1440);
+            status.Token = _signer.Create(item!.Id, user.Id, DateTimeOffset.UtcNow.AddMinutes(minutes));
+        }
+
+        return status;
     }
 
     /// <summary>Every rule, built-in and the administrator's own, with its text. Administrators only.</summary>
@@ -860,6 +1000,9 @@ public sealed class MaterialStatus
 /// <summary>An item's material and the material below it.</summary>
 public sealed class MaterialTree
 {
+    /// <summary>Gets or sets the item's id.</summary>
+    public string ItemId { get; set; } = string.Empty;
+
     /// <summary>Gets or sets the item's name.</summary>
     public string Name { get; set; } = string.Empty;
 
@@ -871,6 +1014,9 @@ public sealed class MaterialTree
 
     /// <summary>Gets the archives below the item, grouped by section.</summary>
     public List<MaterialGroup> Groups { get; } = new();
+
+    /// <summary>Gets or sets a value indicating whether "Download everything" is offered (two or more downloads, and the setting on).</summary>
+    public bool Everything { get; set; }
 
     /// <summary>Gets or sets a value indicating whether this user may download.</summary>
     public bool CanDownload { get; set; }
@@ -961,4 +1107,26 @@ public sealed class KeyTest
 
     /// <summary>Gets or sets what VirusTotal said.</summary>
     public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>"Download everything" for one course or section.</summary>
+public sealed class BundleStatus
+{
+    /// <summary>Gets or sets the zip's exact size.</summary>
+    public long Size { get; set; }
+
+    /// <summary>Gets or sets how many downloads (archives or single files) it gathers.</summary>
+    public int Downloads { get; set; }
+
+    /// <summary>Gets or sets the name it downloads under.</summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets <c>stream</c> (put together as it downloads), <c>ready</c> (on disk), <c>prepare</c>, <c>preparing</c> or <c>failed</c>.</summary>
+    public string Mode { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets, while preparing, how far it has got, 0–100.</summary>
+    public double Progress { get; set; }
+
+    /// <summary>Gets or sets a download token (POST, once it can be downloaded): <c>Download/{token}?bundle=1</c>.</summary>
+    public string? Token { get; set; }
 }

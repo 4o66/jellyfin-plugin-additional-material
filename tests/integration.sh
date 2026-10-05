@@ -356,6 +356,89 @@ check "new course: material offered and built within a minute, no re-read" "$got
 check "new course: planned on its own, not by a full re-plan" "$(docker logs "$NAME" 2>&1 | grep -c "Additional Material: planned [0-9]* archives in")" "$full_plans"
 docker logs "$NAME" 2>&1 | grep -q "planned /media/training/Course E again" && ok "new course: the watcher planned it" || bad "new course: the watcher planned it"
 
+# ---- download everything -----------------------------------------------------------------------
+every() { as "$1" "${@:3}" "$BASE/AdditionalMaterial/Items/$2/Everything"; }
+everypost() { as "$1" -X POST "$BASE/AdditionalMaterial/Items/$2/Everything"; }
+bundle_get() { local tok; tok=$(everypost "$ADMIN" "$1" | jq -r .Token); curl -s -D "$WORK/bh" -o "$2" -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$tok?bundle=1"; }
+names() { 7z l -ba -slt "$1" | sed -n 's/^Path = //p' | sort | tr '\n' '|'; }   # sorted: a bundle keeps each archive's own order
+kept_count() { for _ in $(seq 20); do [[ $(ls "$BUNDLES" 2>/dev/null | grep -c 'tmp$') == 0 ]] && break; sleep 0.5; done; echo "$(ls "$BUNDLES" 2>/dev/null | grep -c 'zip$') $(ls "$BUNDLES" 2>/dev/null | grep -c 'tmp$')"; }
+BUNDLES="$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/bundles"
+cfg '.KeepStreamedBundles=false | .StreamBundlesBelowMegabytes=150 | .OfferDownloadEverything=true | .ShowOnParents="all"'
+check "everything: offered on a course with several archives" "$(tree "$ADMIN" "$SERIES" | jq -r .Everything)" true
+check "everything: offered on a section with lessons" "$(tree "$ADMIN" "$SEASONC" | jq -r .Everything)" true
+check "everything: not on a lesson" "$(tree "$ADMIN" "$E1" | jq -r .Everything)" false
+check "everything: size, count and streaming for a small course" "$(every "$ADMIN" "$SERIES" | jq -c '[.Downloads, .Mode, (.Size > 0), (.FileName | endswith(" (all).zip"))]')" '[3,"stream",true,true]'
+code=$(bundle_get "$SERIES" "$WORK/ba.zip")
+check "everything: streamed download 200" "$code" 200
+check "everything: exactly the size announced" "$(stat -c %s "$WORK/ba.zip")" "$(every "$ADMIN" "$SERIES" | jq .Size)"
+check "everything: Content-Length matches" "$(tr -d '\r' < "$WORK/bh" | sed -n 's/^[Cc]ontent-[Ll]ength: *//p')" "$(stat -c %s "$WORK/ba.zip")"
+grep -qi '^content-disposition: attachment.*(all)\.zip' "$WORK/bh" && ok "everything: named ... (all).zip" || bad "everything: named ... (all).zip ($(grep -i '^content-disposition' "$WORK/bh" | tr -d '\r'))"
+7z t "$WORK/ba.zip" >/dev/null 2>&1 && ok "everything: a valid zip (7z test, CRCs)" || bad "everything: a valid zip (7z test, CRCs)"
+check "everything: archives unpacked into folders that mirror the course" "$(names "$WORK/ba.zip")" "Course A/Season 1/S01E01 - Lesson One/labs.zip|Course A/Season 1/S01E01 - Lesson One/notes.txt|Course A/Season 1/S01E01 - Lesson One/slides/intro.txt|Course A/Season 1/S01E01 - Lesson One/tool.exe.REMOVED.txt|Course A/Season 1/notes.txt|Course A/notes.txt|"
+check "everything: stored, not compressed" "$(7z l -slt "$WORK/ba.zip" | sed -n 's/^Method = //p' | sort -u | tr '\n' ' ')" "Store "
+check "everything: a file's bytes are the archive's" "$(7z e -so "$WORK/ba.zip" "Course A/Season 1/S01E01 - Lesson One/slides/intro.txt" 2>/dev/null)" "intro slides"
+check "everything: a zip inside material stays a zip" "$(7z e -so "$WORK/ba.zip" "Course A/Season 1/S01E01 - Lesson One/labs.zip" 2>/dev/null | sha256sum | cut -c1-64)" "$(7z e -so "$T/Season 1/S01E01 - Lesson One.material.zip" labs.zip 2>/dev/null | sha256sum | cut -c1-64)"
+check "everything: not kept when keeping is off" "$(ls "$BUNDLES" 2>/dev/null | grep -c 'zip$')" 0
+# Planned archives (Course C): their files and notes, single files as they are, left-out files absent.
+code=$(bundle_get "$SERIESC" "$WORK/bc.zip")
+check "everything (planned): download 200, valid" "$code $(7z t "$WORK/bc.zip" >/dev/null 2>&1 && echo valid)" "200 valid"
+check "everything (planned): files, notes and single files, no left-out ones" "$(names "$WORK/bc.zip")" "Course C/Season 1/S01E01 - Build Lesson/S01E01 - Build Lesson.pdf|Course C/Season 1/S01E02 - Two Files/S01E02 - Two Files.docm.REMOVED.txt|Course C/Season 1/S01E02 - Two Files/S01E02 - Two Files.txt|Course C/Season 1/notes.txt|Course C/Season 1/section-slides.md|Course C/readme.txt|"
+check "everything (planned): the original file" "$(7z e -so "$WORK/bc.zip" "Course C/Season 1/S01E02 - Two Files/S01E02 - Two Files.txt" 2>/dev/null | sha256sum | cut -c1-64)" "$(sha256sum < "$TC/Season 1/S01E02 - Two Files.txt" | cut -c1-64)"
+7z e -so "$WORK/bc.zip" "Course C/Season 1/S01E02 - Two Files/S01E02 - Two Files.docm.REMOVED.txt" 2>/dev/null | grep -q '^REMOVED: S01E02 - Two Files.docm' && ok "everything (planned): the removal note" || bad "everything (planned): the removal note"
+check "everything (section): its own material at the top" "$(bundle_get "$SEASONC" "$WORK/bs.zip") $(names "$WORK/bs.zip")" "200 Course C - Season 1/S01E01 - Build Lesson/S01E01 - Build Lesson.pdf|Course C - Season 1/S01E02 - Two Files/S01E02 - Two Files.docm.REMOVED.txt|Course C - Season 1/S01E02 - Two Files/S01E02 - Two Files.txt|Course C - Season 1/notes.txt|Course C - Season 1/section-slides.md|"
+# Kept on disk: the next download is served from there, and can be resumed.
+cfg '.KeepStreamedBundles=true'
+bundle_get "$SERIES" "$WORK/ba2.zip" >/dev/null
+check "keep streamed: kept on disk after a complete download" "$(kept_count)" "1 0"
+check "keep streamed: the same bundle" "$(sha256sum < "$WORK/ba2.zip" | cut -c1-64)" "$(sha256sum < "$WORK/ba.zip" | cut -c1-64)"
+check "keep streamed: offered as ready" "$(every "$ADMIN" "$SERIES" | jq -r .Mode)" ready
+TOKA=$(everypost "$ADMIN" "$SERIES" | jq -r .Token)
+check "kept: a range can be resumed" "$(curl -s -r 10-19 -o "$WORK/part" -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$TOKA?bundle=1") $(cmp -s "$WORK/part" <(tail -c +11 "$WORK/ba.zip" | head -c 10) && echo same)" "206 same"
+echo "section notes, changed" > "$TC/Season 1/notes.txt"; as "$ADMIN" -o /dev/null -X POST "$BASE/AdditionalMaterial/Index/Refresh"; sleep 3; for _ in $(seq 60); do [[ $(bstat | jq -r .Running) == false ]] && break; sleep 1; done
+bundle_get "$SERIESC" "$WORK/bc2.zip" >/dev/null; bundle_get "$SERIESC" "$WORK/bc3.zip" >/dev/null
+check "changed material: a new bundle, never the old one" "$(7z e -so "$WORK/bc3.zip" "Course C/Season 1/notes.txt" 2>/dev/null)" "section notes, changed"
+# Large ones (here every one, at 0 MB) are prepared on disk first. This section's bundle was never kept.
+cfg '.StreamBundlesBelowMegabytes=0'
+check "prepare: announced as to be prepared" "$(every "$ADMIN" "$SEASONC" | jq -r .Mode)" prepare
+check "prepare: a direct download is refused until prepared" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$(as "$ADMIN" -X POST "$BASE/AdditionalMaterial/Items/$SEASONC/Link" | jq -r .Token)?bundle=1")" 409
+st=""; for _ in $(seq 30); do st=$(everypost "$ADMIN" "$SEASONC"); [[ $(jq -r .Token <<<"$st") != null ]] && break; sleep 1; done
+check "prepare: becomes ready, with a link" "$(jq -r .Mode <<<"$st") $([[ $(jq -r .Token <<<"$st") != null ]] && echo token)" "ready token"
+code=$(curl -s -o "$WORK/bp.zip" -w '%{http_code}' "$BASE/AdditionalMaterial/Download/$(jq -r .Token <<<"$st")?bundle=1")
+check "prepare: downloads, valid, the section's files" "$code $(7z t "$WORK/bp.zip" >/dev/null 2>&1 && echo valid) $(names "$WORK/bp.zip")" "200 valid $(names "$WORK/bs.zip")"
+cfg '.StreamBundlesBelowMegabytes=150'
+# Who may, and the settings.
+check "everything: someone without the library cannot" "$(every "$OUTSIDE" "$SERIES" -o /dev/null -w '%{http_code}')" 404
+check "everything: without download permission, no link" "$(everypost "$READER" "$SERIES" | jq -r '.Token')" null
+check "everything: unauthenticated refused" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/AdditionalMaterial/Items/$SERIES/Everything")" 401
+cfg '.ShowOnParents="section"'
+check "levels=section: not on a course" "$(tree "$ADMIN" "$SERIES" | jq -r .Everything) $(every "$ADMIN" "$SERIES" -o /dev/null -w '%{http_code}')" "false 404"
+check "levels=section: still on a section" "$(tree "$ADMIN" "$SEASONC" | jq -r .Everything)" true
+cfg '.ShowOnParents="all" | .OfferDownloadEverything=false'
+check "turned off: not offered" "$(tree "$ADMIN" "$SERIES" | jq -r .Everything) $(every "$ADMIN" "$SERIES" -o /dev/null -w '%{http_code}')" "false 404"
+cfg '.OfferDownloadEverything=true'
+# Names that are not safe on Windows, or that try to leave their folder, from an archive made by hand.
+TW="$WORK/media/training/Course W"; mkdir -p "$TW/Season 1"
+cp "$T/Season 1/S01E01 - Lesson One.mp4" "$TW/Season 1/S01E01 - Odd.mp4"
+docker run --rm -v "$TW:/w" "$VT_IMAGE" python -c '
+import zipfile
+with zipfile.ZipFile("/w/Season 1/S01E01 - Odd.material.zip", "w") as z:
+    for n in ["a:b?.txt", "../escape.txt", "CON.txt", "dir\\back.txt", "trailing. "]:
+        z.writestr(n, n)
+    z.writestr("big.dat", __import__("os").urandom(32 * 1024 * 1024))   # big enough to cut a download off mid-way
+with zipfile.ZipFile("/w/additional-material.zip", "w") as z:
+    z.writestr("readme.txt", "course W")
+'
+curl "${A[@]}" -X POST "$BASE/Library/Media/Updated" -d '{"Updates":[{"Path":"/media/training/Course W","UpdateType":"Created"}]}' >/dev/null
+SERIESW=""; for _ in $(seq 60); do SERIESW=$(item Series "/media/training/Course W"); [[ -n $SERIESW && -n $(item Episode "/media/training/Course W/Season 1/S01E01 - Odd.mp4") ]] && break; sleep 2; done
+as "$ADMIN" -o /dev/null -X POST "$BASE/AdditionalMaterial/Index/Refresh"; sleep 3
+before_kept=$(kept_count)
+curl -s "$BASE/AdditionalMaterial/Download/$(everypost "$ADMIN" "$SERIESW" | jq -r .Token)?bundle=1" | head -c 1024 > /dev/null; sleep 2
+check "keep streamed: an interrupted download is not kept" "$(kept_count)" "$before_kept"
+bundle_get "$SERIESW" "$WORK/bw.zip" >/dev/null
+check "unsafe names: made safe, nothing leaves its folder" "$(names "$WORK/bw.zip")" "Course W/Season 1/S01E01 - Odd/_CON.txt|Course W/Season 1/S01E01 - Odd/a_b_.txt|Course W/Season 1/S01E01 - Odd/big.dat|Course W/Season 1/S01E01 - Odd/dir/back.txt|Course W/Season 1/S01E01 - Odd/escape.txt|Course W/Season 1/S01E01 - Odd/trailing|Course W/readme.txt|"
+check "a 32 MB entry: intact" "$(7z e -so "$WORK/bw.zip" "Course W/Season 1/S01E01 - Odd/big.dat" 2>/dev/null | sha256sum | cut -c1-64)" "$(7z e -so "$TW/Season 1/S01E01 - Odd.material.zip" big.dat 2>/dev/null | sha256sum | cut -c1-64)"
+check "keep streamed: the complete one is kept" "$(kept_count | cut -d' ' -f1)" "$(( ${before_kept%% *} + 1 ))"
+
 # ---- rules from the settings ------------------------------------------------------------------
 rules() { as "$1" "$BASE/AdditionalMaterial/Rules"; }
 rcheck() { jq -n --arg t "$1" --arg o "${2:-}" '{Text:$t, OriginalId:$o, OtherIds:[]}' | as "$ADMIN" -X POST -H "Content-Type: application/json" "$BASE/AdditionalMaterial/Rules/Check" -d @-; }

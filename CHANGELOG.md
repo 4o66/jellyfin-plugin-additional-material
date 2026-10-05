@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## Unreleased (1.7.0)
+
+- **Download everything** (#9): course and section pages offer one zip with all the material the
+  picker lists, each archive unpacked into a folder that mirrors the course, single files as they
+  are. Only what the user can see; follows "Show material from lower levels on". Stored entries,
+  so the exact size is shown up front. Settings → Contents: stream it below a size (default 150 MB;
+  larger ones are prepared on disk first, with progress, and can be resumed), keep streamed ones on
+  disk so the next download is served from there (on by default), or turn it off. Kept bundles are
+  used only while their material is unchanged, and removed after 7 days without a download.
+- `tests/integration.py` covers rules, VirusTotal (`--fake-vt`), folder watching and Download
+  everything, as `integration.sh` does.
 
 - **Translating, documented** (#8): `docs/i18n.md` covers both catalogs, how a language is chosen,
   the rules for placeholders and text, words with a fixed meaning, plurals, and how to check and
