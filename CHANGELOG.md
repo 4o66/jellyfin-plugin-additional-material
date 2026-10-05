@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.7.0)
+## 1.7.0 (2026-10-05)
 
 - **Download everything** (#9): course and section pages offer one zip with all the material the
   picker lists, each archive unpacked into a folder that mirrors the course, single files as they
@@ -11,7 +11,6 @@
   used only while their material is unchanged, and removed after 7 days without a download.
 - `tests/integration.py` covers rules, VirusTotal (`--fake-vt`), folder watching and Download
   everything, as `integration.sh` does.
-
 - **Translating, documented** (#8): `docs/i18n.md` covers both catalogs, how a language is chosen,
   the rules for placeholders and text, words with a fixed meaning, plurals, and how to check and
   see a translation; a short how-to sits beside each catalog. `tools/i18n_status.py` shows what a
