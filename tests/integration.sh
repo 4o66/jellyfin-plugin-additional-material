@@ -81,8 +81,8 @@ echo "read-only notes" > "$TD/Season 1/S01E01 - Read Only.txt"; echo "more" > "$
 rm "$WORK/notes.txt"
 
 # ---- plugins ----------------------------------------------------------------
-mkdir -p "$WORK/config/plugins/Additional Material_1.6.0.0"
-cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$OUT/Tomlyn.dll" "$WORK/config/plugins/Additional Material_1.6.0.0/"
+mkdir -p "$WORK/config/plugins/Additional Material_1.6.1.0"
+cp "$OUT/Jellyfin.Plugin.AdditionalMaterial.dll" "$OUT/Tomlyn.dll" "$WORK/config/plugins/Additional Material_1.6.1.0/"
 [[ -n $FT ]] && cp -r "$FT" "$WORK/config/plugins/"
 # A signing key left readable by others (as 1.2.2 and earlier wrote it on Windows) must be replaced.
 KEYFILE="$WORK/config/plugins/Jellyfin.Plugin.AdditionalMaterial/signing.key"
@@ -443,6 +443,28 @@ cfg '.VirusTotalApiKey="" | .AllowCleanExecutables=false | .VirusTotalRequestsPe
 replan
 check "no key: notes say not checked again" "$(note "S01E02 - Bad")" "not checked"
 check "no key: no lookups" "$(vtstats | jq '.lookups | length')" 4
+
+# ---- material added to an existing course, without a scan (folders watched) ---------------------
+check "real-time monitoring off: no folders watched" "$(docker logs "$NAME" 2>&1 | grep -c 'watching [0-9]* folder(s) for changed material')" 0
+curl "${A[@]}" "$BASE/Library/VirtualFolders" | jq --arg id "$TRAINING" '{Id: $id, LibraryOptions: (.[] | select(.ItemId==$id) | .LibraryOptions | .EnableRealtimeMonitor=true)}' |
+  curl "${A[@]}" -X POST "$BASE/Library/VirtualFolders/LibraryOptions" -d @- >/dev/null
+got=false; for _ in $(seq 50); do docker logs "$NAME" 2>&1 | grep -q 'watching 1 folder(s) for changed material: /media/training$' && { got=true; break; }; sleep 2; done
+check "real-time monitoring on: the enabled library's folder is watched (the other is not enabled)" "$got" true
+full_plans=$(docker logs "$NAME" 2>&1 | grep -c "Additional Material: planned [0-9]* archives in")
+replans=$(docker logs "$NAME" 2>&1 | grep -c "planned /media/training/Course C again")
+zentries() { 7z l -ba -slt "$ZC" 2>/dev/null | sed -n 's/^Path = //p' | sort | tr '\n' '|'; }
+printf '%%PDF-1.4\nadded later\n' > "$TC/Season 1/S01E02 - Two Files.pdf"
+got=""; for _ in $(seq 45); do got=$(zentries); [[ $got == *"Two Files.pdf"* ]] && break; sleep 2; done
+check "added material: in its lesson's archive within a minute, no re-read" "$got" "S01E02 - Two Files.docm.REMOVED.txt|S01E02 - Two Files.pdf|S01E02 - Two Files.txt|"
+check "added material: offered in the contents view" "$(cont "$ADMIN" "$EC2" | jq -c '[.Entries[] | select(.LeftOut|not) | .Path] | sort')" '["S01E02 - Two Files.docm.REMOVED.txt","S01E02 - Two Files.pdf","S01E02 - Two Files.txt"]'
+check "added material: only that course planned again" "$(( $(docker logs "$NAME" 2>&1 | grep -c "planned /media/training/Course C again") > replans ))" 1
+check "added material: no full re-plan" "$(docker logs "$NAME" 2>&1 | grep -c "Additional Material: planned [0-9]* archives in")" "$full_plans"
+rm "$TC/Season 1/S01E02 - Two Files.pdf"
+got=""; for _ in $(seq 45); do got=$(zentries); [[ $got != *"Two Files.pdf"* ]] && break; sleep 2; done
+check "removed material: gone from the archive within a minute" "$got" "S01E02 - Two Files.docm.REMOVED.txt|S01E02 - Two Files.txt|"
+m1=$(stat -c %Y "$ZC"); touch "$TC/Season 1/.hidden-note.txt" "$TC/Season 1/S01E02 - Two Files.nfo"; sleep 40
+check "hidden files and .nfo writes: archive left alone" "$(stat -c %Y "$ZC")" "$m1"
+rm -f "$TC/Season 1/.hidden-note.txt" "$TC/Season 1/S01E02 - Two Files.nfo"
 
 cfg '.BuildArchives=false'
 check "building off: built archives still served as they are" "$(info "$ADMIN" "$EC2" | jq -r .FileName)" "S01E02 - Two Files.material.zip"

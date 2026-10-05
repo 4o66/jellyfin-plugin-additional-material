@@ -27,6 +27,13 @@ script. After each library scan (and at startup) it works out, per course, what 
 - adverts, shortcuts and links pointing outside the library are left out (the contents view lists
   them, with the reason: to everyone, administrators only, or nobody).
 
+**Changes are noticed without a scan** in libraries that have Jellyfin's **Enable real-time
+monitoring** on (Dashboard → Libraries → the library): material added to, changed in or removed
+from a course, a new course, or an archive someone drops in. About 30 seconds after the last
+change (at most 5 minutes while changes keep coming), that course alone is planned again and,
+with background building, rebuilt. Network shares (SMB, NFS) report no changes; there, library
+scans do it.
+
 Icons and contents show at once. The archives are built in the background (or, if you prefer, on
 first download), **beside the videos**, where the script would put them, or in the plugin's cache
 when that folder cannot be written, or always in the cache if you choose. They are rebuilt when

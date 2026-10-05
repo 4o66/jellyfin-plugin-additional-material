@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.1 (2026-10-04)
+
+- **Material added to an existing course is noticed without a scan** (#7). In enabled libraries
+  with Jellyfin's "Enable real-time monitoring" on, the plugin watches the course folders: files
+  added, changed, removed or renamed (material Jellyfin makes no items for, which 1.5.2 could not
+  see) plan that course again about 30 seconds after the last change, at most 5 minutes while
+  changes keep coming, and with background building on rebuild its archives. An archive someone
+  drops in is picked up too. The plugin's own writes, hidden files and Jellyfin's metadata are
+  ignored. If changes are missed (too many at once), every library is re-read once. Network
+  shares report no changes; there, scans still do it.
+
 ## 1.6.0 (2026-10-04)
 
 - **Rules in the settings** (Settings → Rules): every rule building uses is listed, and can be
