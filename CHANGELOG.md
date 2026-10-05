@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Translating, documented** (#8): `docs/i18n.md` covers both catalogs, how a language is chosen,
+  the rules for placeholders and text, words with a fixed meaning, plurals, and how to check and
+  see a translation; a short how-to sits beside each catalog. `tools/i18n_status.py` shows what a
+  language is missing or gets wrong, and the tests now also require lower-case file names.
+
 ## 1.6.1 (2026-10-04)
 
 - **Material added to an existing course is noticed without a scan** (#7). In enabled libraries

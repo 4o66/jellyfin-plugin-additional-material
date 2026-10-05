@@ -308,6 +308,12 @@ docker run --rm -v "$PWD:/src" -w /src mcr.microsoft.com/dotnet/sdk:10.0 \
   (71 checks): item-page buttons, the contents view, grid and list icons (with Jellyfin re-drawing
   them), the settings page. The command is in the file's header.
 
+## Translations
+
+English only so far. Every string is in a catalog, so a language is a file and a pull request:
+see **[docs/i18n.md](docs/i18n.md)**. A partial translation is welcome; anything missing shows in
+English.
+
 ## License
 
 [GPL-3.0](LICENSE), like Jellyfin's own plugins.

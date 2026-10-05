@@ -516,6 +516,8 @@ class PlacementAndLanguage(unittest.TestCase):
             english = json.loads((folder / "en.json").read_text())
             for f in folder.glob("*.json"):
                 with self.subTest(file=str(f)):
+                    # Lower case: the script looks for de.json or pt-br.json, and a file system may care.
+                    self.assertRegex(f.stem, r"^[a-z]{2,3}(-[a-z0-9]{2,8})*$", f"{f.name}: name it after a lower-case language tag")
                     data = json.loads(f.read_text())
                     self.assertEqual(set(data) - set(english), set(), f"{f.name} has keys English lacks")
                     for k, v in data.items():

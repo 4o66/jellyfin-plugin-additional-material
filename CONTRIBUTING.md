@@ -98,17 +98,14 @@ A new check deserves a new fixture in `fixtures.py`, so both sides are held to i
 
 ## Adding a translation
 
-Text is kept in one JSON file per language, so a translation is one file per part:
+A translation is one JSON file per catalog: `src/Jellyfin.Plugin.AdditionalMaterial/Web/i18n/`
+for the web button and settings page, `tools/i18n/` for the notes the helper script writes. Copy
+`en.json` to a lower-case language tag (`de.json`, `pt-br.json`), translate the values, keep every
+`{placeholder}`. Missing strings fall back to English, so a partial translation is fine.
+`python3 tools/i18n_status.py <code>` shows what is missing or wrong, and the tests check the same.
 
-- `src/Jellyfin.Plugin.AdditionalMaterial/Web/i18n/<lang>.json`: the web button and the
-  settings page. The language follows the web client's display language (`de-DE`, then `de`,
-  then English).
-- `tools/i18n/<lang>.json`: the `.REMOVED.txt` notes the helper script puts in archives
-  (`--language`, or `LANG`).
-
-Copy `en.json`, translate the values, and keep every `{placeholder}` as is. Missing keys fall
-back to English. The tests check that a translation has no keys English lacks and keeps the same
-placeholders.
+The whole guide, with the words that have a fixed meaning, plurals, and how to see a translation
+in a running Jellyfin: **[docs/i18n.md](docs/i18n.md)**.
 
 ## Everything else
 
